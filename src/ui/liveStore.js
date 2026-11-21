@@ -18,6 +18,7 @@ export function createLiveStore() {
     error: '',
   };
   const subs = new Set();
+  let heardDone = true; // true once the AI answers: the next onHeard starts a new line
   const gestures = new Map();
   const set = (patch) => {
     state = { ...state, ...patch };
@@ -33,8 +34,17 @@ export function createLiveStore() {
     },
     onProcedure: (p) => set({ procedure: p }),
     onCalc: ({ result }) => set({ calc: result }),
-    onSaid: (text, final) => set(final ? { said: text, saidFinal: text } : { said: text }),
-    onHeard: (text) => set({ heard: text }),
+    // onSaid gives the whole utterance so far; onHeard gives fragments of what the user says.
+    // Fragments are joined until the AI starts answering, then the next thing heard starts fresh.
+    onSaid: (text, final) => {
+      heardDone = true;
+      set(final ? { said: text, saidFinal: text } : { said: text });
+    },
+    onHeard: (text) => {
+      const heard = heardDone ? text.trim() : `${state.heard}${text}`.trim();
+      heardDone = false;
+      set({ heard });
+    },
     onStatus: (s) => set({ status: s }),
     onError: (e) => set({ error: e?.message || String(e) }),
   };
