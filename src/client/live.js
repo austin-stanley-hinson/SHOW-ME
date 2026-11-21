@@ -85,12 +85,15 @@ export async function startLive(opts) {
   const RESNAP_MS = 2500;
   const snapTargets = new Map(); // id -> label
   const hidden = new Set(); // ids not visible right now (or unsure after a big motion)
+  const pending = new Map(); // id -> timeout: waiting for the precise snap, not drawn yet
+  const PENDING_MAX_MS = 3000;
   let resnapBusy = false;
   let calmSince = 0;
   const trackedScene = () => {
     const s = st.current(tools.scene);
-    if (!hidden.size) return s;
-    return { ...s, items: s.items.map((i) => (hidden.has(i.id) || Object.values(i.refs || {}).some((r) => hidden.has(r)) ? { ...i, stale: true, hidden: true } : i)) };
+    if (!hidden.size && !pending.size) return s;
+    const off = (id) => hidden.has(id) || pending.has(id);
+    return { ...s, items: s.items.map((i) => (off(i.id) || Object.values(i.refs || {}).some(off) ? { ...i, stale: true, hidden: true } : i)) };
   };
   const sentFrames = new Map(); // frameId -> base64 JPEG (last few), for precise-point lookups
 
@@ -104,7 +107,11 @@ export async function startLive(opts) {
       const j = await r.json();
       log.event('refine', { frameId, targets, result: j, ms: Date.now() - t });
       if (!r.ok || closed) return;
-      for (const tg of targets) snapTargets.set(tg.id, tg.label);
+      for (const tg of targets) {
+        snapTargets.set(tg.id, tg.label);
+        clearTimeout(pending.get(tg.id));
+        pending.delete(tg.id);
+      }
       const found = new Set((j.points || []).map((p) => p.id));
       for (const tg of targets) (found.has(tg.id) ? hidden.delete(tg.id) : hidden.add(tg.id));
       if (!j.points?.length) return;
@@ -225,7 +232,15 @@ export async function startLive(opts) {
           onScene?.(update.scene);
           if (fc.name === 'show') {
             const pointIds = (fc.args?.points || []).map((p) => p?.id).filter(Boolean);
-            refinePositions(lastSentFrameId, tools.targetsFor(response.shown || [], pointIds));
+            const targets = tools.targetsFor(response.shown || [], pointIds);
+            if (fc.args?.clear) {
+              for (const id of snapTargets.keys()) if (!targets.some((t) => t.id === id)) snapTargets.delete(id);
+            }
+            for (const t of targets) {
+              clearTimeout(pending.get(t.id));
+              pending.set(t.id, setTimeout(() => pending.delete(t.id), PENDING_MAX_MS));
+            }
+            refinePositions(lastSentFrameId, targets);
           }
         }
         if (update?.gesture) onGesture?.(update.gesture);

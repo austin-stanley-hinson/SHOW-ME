@@ -65,7 +65,9 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     const pointIds = new Set([...scene.points.map((p) => p.id), ...raw.points.map((p) => p?.id)]);
     raw.draw = (Array.isArray(args?.items) ? args.items : []).map((i) => withPointRefs(i, pointIds));
     // Points already on screen can be referenced by id; validate against the merged set.
-    const merged = { ...raw, points: [...scene.points.map((p) => ({ id: p.id, at: [p.at[1] * 1000, p.at[0] * 1000] })), ...raw.points] };
+    // Points already on screen can be referenced, but only when the view is kept (clear: false).
+    const keep = raw.clear ? [] : scene.points.map((p) => ({ id: p.id, at: [p.at[1] * 1000, p.at[0] * 1000] }));
+    const merged = { ...raw, points: [...keep, ...raw.points] };
     const converted = toContractCoords(merged, coords);
     const v = validateResponse(converted, { previousIds: onScreen() });
     if (!v.ok) return { response: { error: v.error } };

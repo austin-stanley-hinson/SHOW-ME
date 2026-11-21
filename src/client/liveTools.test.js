@@ -67,3 +67,15 @@ test('an arrow with only a tip gets a tail instead of being rejected', () => {
   assert.deepEqual(a.to, [0.15, 0.51]);
   assert.deepEqual(a.from, [0.03, 0.39]);
 });
+
+test('clear: true drops old named points too (no ghost points re-snapped forever)', () => {
+  const t = createLiveTools();
+  t.handle({ name: 'show', args: { points: [{ id: 'pencil_point', at: [510, 360] }], items: [{ type: 'circle', id: 'c', at_point: 'pencil_point' }] } });
+  t.handle({ name: 'show', args: { clear: true, items: [{ type: 'circle', id: 'keys', at: [640, 480] }] } });
+  assert.deepEqual(t.scene.points, []);
+  assert.deepEqual(t.scene.items.map((i) => i.id), ['keys']);
+  // Kept view: old points stay referenceable.
+  t.handle({ name: 'show', args: { points: [{ id: 'lid', at: [300, 300] }] } });
+  t.handle({ name: 'show', args: { items: [{ type: 'arrow', id: 'a', from: [100, 100], to_point: 'lid', label: 'lid' }] } });
+  assert.deepEqual(t.scene.items.map((i) => i.id), ['keys', 'a']);
+});
