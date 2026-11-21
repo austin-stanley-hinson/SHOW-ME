@@ -8,7 +8,7 @@ import { RESPONSE_SCHEMA } from './schema.js';
 // Tried in order; the next one is used if a model is busy (429/503) or gone (404).
 const MODELS = process.env.GEMINI_MODEL
   ? [process.env.GEMINI_MODEL]
-  : ['gemini-3.6-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest'];
+  : ['gemini-3.6-flash', 'gemini-flash-latest']; // not lite: it produced runaway output in testing
 const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
 
 // imageBase64: JPEG (or mimeType) as base64, no "data:" prefix.
@@ -40,6 +40,8 @@ export async function askGemini(imageBase64, question, previous = null, mimeType
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
       temperature: 0.3,
+      maxOutputTokens: 2048, // stops runaway output fast
+      thinkingConfig: { thinkingLevel: 'minimal' }, // faster; we only need positions + estimates
     },
   };
 
@@ -59,7 +61,7 @@ export async function askGemini(imageBase64, question, previous = null, mimeType
   if (!res.ok) return { ok: false, error: `Gemini HTTP ${res.status}` };
 
   const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  const text = json?.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text || '').join('') || '';
   let data;
   try {
     // Strip code fences in case the model adds them anyway.
