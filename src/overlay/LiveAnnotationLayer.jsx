@@ -43,7 +43,7 @@ export default function LiveAnnotationLayer({ live, store, video, hidden, bottom
         lastLost = lost;
         o.onTracking?.(lost);
       }
-      const scene = buildScene({ draw: tracked.items }, null, { calc: store.get().calc ?? undefined });
+      const scene = buildScene({ draw: tracked.items }, null, { calc: store.get().calc ?? undefined, tracked: true });
       drawScene(ctx, scene, w, h, {
         frame: video ? coverRect(video.videoWidth, video.videoHeight, w, h) : null,
         bottomInset: o.bottomInset,

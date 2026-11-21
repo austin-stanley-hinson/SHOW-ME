@@ -140,3 +140,9 @@ test('v3.1: rotate items normalized, hidden items dropped', () => {
     ],
   );
 });
+
+test('live: tracked positions off the frame are kept (not pinned to the edge); answers are clamped', () => {
+  const draw = [{ type: 'point', id: 'p', at: [1.3, -0.2], label: 'Gone' }];
+  assert.deepEqual(buildScene({ draw }, null, { tracked: true }).items[0].at, [1.3, -0.2]);
+  assert.deepEqual(buildScene({ draw }).items[0].at, [1, 0]);
+});
