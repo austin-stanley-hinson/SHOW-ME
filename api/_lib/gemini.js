@@ -9,6 +9,7 @@ import { RESPONSE_SCHEMA } from './schema.js';
 const MODELS = process.env.GEMINI_MODEL
   ? [process.env.GEMINI_MODEL]
   : ['gemini-3.6-flash', 'gemini-flash-latest']; // not lite: it produced runaway output in testing
+const TIMEOUT_MS = 55_000;
 const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
 
 // imageBase64: JPEG (or mimeType) as base64, no "data:" prefix.
@@ -16,7 +17,7 @@ const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/$
 // Returns { ok: true, value } or { ok: false, error }.
 export async function askGemini(imageBase64, question, previous = null, mimeType = 'image/jpeg') {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) return { ok: false, error: 'GEMINI_API_KEY is not set' };
+  if (!key) return { ok: false, error: 'GEMINI_API_KEY is not set', status: 500 };
 
   // The earlier image is not resent; Gemini sees the earlier question and its own JSON reply.
   const history =
@@ -45,16 +46,20 @@ export async function askGemini(imageBase64, question, previous = null, mimeType
     },
   };
 
+  // One time budget for all attempts. Gemini is slow under load (~50 s seen), so keep this under
+  // the Vercel function limit but generous. Client timeout (askApi.js) must be a bit longer.
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
   let res;
   for (const model of MODELS) {
     try {
       res = await fetch(urlFor(model), {
+        signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify(body),
       });
-    } catch {
-      return { ok: false, error: 'could not reach Gemini' };
+    } catch (e) {
+      return { ok: false, error: e.name === 'TimeoutError' ? 'timed out' : 'could not reach Gemini' };
     }
     if (![404, 429, 503].includes(res.status)) break;
   }

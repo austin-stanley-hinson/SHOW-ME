@@ -4,6 +4,9 @@
 
 import { askGemini } from './_lib/gemini.js';
 
+// Gemini can take ~50 s under load; give the function room (Vercel caps by plan).
+export const maxDuration = 60;
+
 const MAX_IMAGE_CHARS = 4_000_000; // Vercel body limit is ~4.5 MB; keep frames ~1024px JPEG.
 
 export default async function handler(req, res) {
@@ -17,7 +20,7 @@ export default async function handler(req, res) {
   const result = await askGemini(image.replace(/^data:image\/\w+;base64,/, ''), question.slice(0, 500), previous);
   if (!result.ok) {
     console.error('ask failed:', result.error); // error text only, never the image
-    return res.status(502).json({ error: result.error });
+    return res.status(result.status || (result.error === 'timed out' ? 504 : 502)).json({ error: result.error });
   }
   return res.status(200).json(result.value);
 }

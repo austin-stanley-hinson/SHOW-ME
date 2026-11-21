@@ -7,13 +7,14 @@ const G = 9.81; // m/s^2
 const MODELS = {
   wall_mount: {
     inputs: ['mass_kg', 'lever_arm_m', 'bolt_spacing_m', 'bolt_count'],
+    // Each step uses the previous step's ROUNDED value, so every printed line checks out on a calculator.
     compute({ mass_kg, lever_arm_m, bolt_spacing_m, bolt_count }) {
-      const weight = mass_kg * G;
-      const moment = weight * lever_arm_m;
-      const top_bolt_tension = moment / bolt_spacing_m;
+      const weight = round3(mass_kg * G);
+      const moment = round3(weight * lever_arm_m);
+      const top_bolt_tension = round3(moment / bolt_spacing_m);
       return {
         weight: { value: weight, unit: 'N', name: 'Weight' },
-        shear_per_bolt: { value: weight / bolt_count, unit: 'N', name: 'Shear per bolt' },
+        shear_per_bolt: { value: round3(weight / bolt_count), unit: 'N', name: 'Shear per bolt' },
         moment: { value: moment, unit: 'N·m', name: 'Moment' },
         top_bolt_tension: { value: top_bolt_tension, unit: 'N', name: 'Top bolt tension' },
         wall_reaction: { value: top_bolt_tension, unit: 'N', name: 'Wall push' },
@@ -23,7 +24,7 @@ const MODELS = {
     lines(i, q) {
       return [
         `Mass ≈ ${fmt(i.mass_kg)} kg (est.) → W = ${fmt(i.mass_kg)} × 9.81 = ${fmt(q.weight.value)} N`,
-        `Up: ${i.bolt_count} bolts × ${fmt(q.shear_per_bolt.value)} N = ${fmt(q.weight.value)} N ✓`,
+        `Each bolt holds: ${fmt(q.weight.value)} / ${i.bolt_count} = ${fmt(q.shear_per_bolt.value)} N`,
         `Turning: M = ${fmt(q.weight.value)} × ${fmt(i.lever_arm_m)} = ${fmt(q.moment.value)} N·m`,
         `Top bolt: T = ${fmt(q.moment.value)} / ${fmt(i.bolt_spacing_m)} = ${fmt(q.top_bolt_tension.value)} N  ·  Wall push = ${fmt(q.wall_reaction.value)} N`,
       ];
@@ -40,7 +41,11 @@ const INPUT_INFO = {
 
 // 3 significant figures, no trailing zeros: 49.05 -> "49.1", 4.905 -> "4.91", 0.1 -> "0.1", 5 -> "5".
 export function fmt(n) {
-  return String(Number(n.toPrecision(3)));
+  return String(round3(n));
+}
+
+function round3(n) {
+  return Number(n.toPrecision(3));
 }
 
 // physics: the "physics" object from Gemini (or null).

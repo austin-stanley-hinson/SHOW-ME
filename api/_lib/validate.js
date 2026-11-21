@@ -31,6 +31,8 @@ function cleanItem(item) {
 export function validateResponse(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: 'not an object' };
   if (typeof data.answer !== 'string' || !data.answer.trim()) return { ok: false, error: 'missing answer' };
+  // Missing optional-ish keys become null rather than rejecting a good answer.
+  data = { ...data, followup_question: data.followup_question ?? null, physics: data.physics ?? null };
   if (data.followup_question !== null && typeof data.followup_question !== 'string') {
     return { ok: false, error: 'followup_question must be string or null' };
   }

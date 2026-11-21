@@ -12,6 +12,7 @@
 import speakerFixture from '../../api/fixtures/speaker.json';
 
 const USE_FIXTURE = false;
+const TIMEOUT_MS = 60_000; // a bit longer than the server's 55 s Gemini budget
 const MAX_SIDE = 1024; // px; keeps the upload small and fast
 
 // canvas: an HTMLCanvasElement holding exactly what the user sees (same crop as the screen).
@@ -19,18 +20,28 @@ const MAX_SIDE = 1024; // px; keeps the upload small and fast
 export async function ask(canvas, question, previous = null) {
   if (USE_FIXTURE) return { ok: true, data: speakerFixture };
 
+  let res;
   try {
-    const res = await fetch('/api/ask', {
+    res = await fetch('/api/ask', {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: toJpegBase64(canvas), question, ...(previous && { previous }) }),
     });
-    const data = await res.json();
-    if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };
-    return { ok: true, data };
-  } catch {
-    return { ok: false, error: 'network error' };
+  } catch (e) {
+    return { ok: false, error: e.name === 'TimeoutError' ? 'timed out' : 'network error' };
   }
+
+  // Vercel error pages (413, 504) are HTML, not JSON.
+  let data = null;
+  if ((res.headers.get('content-type') || '').includes('application/json')) {
+    try {
+      data = await res.json();
+    } catch {}
+  }
+  if (!res.ok) return { ok: false, error: data?.error || `HTTP ${res.status}` };
+  if (!data) return { ok: false, error: 'bad response' };
+  return { ok: true, data };
 }
 
 function toJpegBase64(canvas) {

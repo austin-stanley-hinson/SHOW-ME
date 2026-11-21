@@ -14,8 +14,14 @@ test('contract example 1 is valid and unchanged', () => {
 test('rejects missing required fields', () => {
   assert.equal(validateResponse({ ...speaker, answer: '' }).ok, false);
   assert.equal(validateResponse({ ...speaker, draw: 'x' }).ok, false);
-  assert.equal(validateResponse({ answer: 'hi', draw: [], physics: null }).ok, false); // no followup_question
   assert.equal(validateResponse('nope').ok, false);
+});
+
+test('missing followup_question / physics become null', () => {
+  const r = validateResponse({ answer: 'hi', draw: [] });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.followup_question, null);
+  assert.equal(r.value.physics, null);
 });
 
 test('drops bad items, dedupes ids, clamps coords, caps at 12', () => {
