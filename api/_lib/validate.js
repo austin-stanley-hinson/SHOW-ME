@@ -5,6 +5,7 @@ const TYPES = {
   arrow: ['from', 'to'],
   line: ['from', 'to'],
   point: ['at'],
+  circle: ['at'],
   label: ['at'],
   step: ['at'],
   panel: ['at'],
@@ -38,6 +39,7 @@ function cleanItem(item, points) {
   if ((item.type === 'label' || item.type === 'step') && typeof item.label !== 'string') return null;
   if (item.type === 'step' && !Number.isInteger(item.n)) return null;
   if (item.type === 'panel' && typeof item.text !== 'string') return null;
+  if (item.type === 'circle' && !(Number.isFinite(item.r) && item.r > 0)) return null;
 
   const out = { ...item };
   const refs = {};
@@ -52,6 +54,7 @@ function cleanItem(item, points) {
       return null;
     }
   }
+  if (item.type === 'circle') out.r = Math.min(0.3, Math.max(0.01, item.r));
   if (Object.keys(refs).length) out.refs = refs;
   return out;
 }

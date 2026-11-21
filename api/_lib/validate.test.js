@@ -69,3 +69,15 @@ test('points: draw items can reference named points; refs kept for 3D', () => {
   assert.deepEqual(r.value.draw[0].refs, { from: 'seat' });
   assert.deepEqual(r.value.draw[1].at, [0.4, 1]);
 });
+
+test('circle highlights a part; radius required and clamped', () => {
+  const r = validateResponse({
+    answer: 'That bolt.',
+    draw: [
+      { type: 'circle', id: 'bolt', at: [0.4, 0.6], r: 0.05 },
+      { type: 'circle', id: 'huge', at: [0.4, 0.6], r: 2 },
+      { type: 'circle', id: 'nor', at: [0.4, 0.6] },
+    ],
+  });
+  assert.deepEqual(r.value.draw.map((i) => [i.id, i.r]), [['bolt', 0.05], ['huge', 0.3]]);
+});
