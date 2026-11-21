@@ -374,3 +374,138 @@ mark.unchecked {
   text-decoration: underline wavy;
   text-underline-offset: 3px;
 }
+
+/* ---------- live mode ---------- */
+
+.live-button {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.live-button .dot,
+.live-status .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+}
+
+.live-status {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 14px;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.live-status.listening .dot,
+.live-status.live .dot {
+  background: #30d158;
+}
+
+.live-status.speaking .dot {
+  background: var(--accent);
+}
+
+.live-status.connecting .dot,
+.live-status.closed .dot {
+  background: #8e8e93;
+}
+
+.live-status .track-lost {
+  color: #ff9f0a;
+  font-weight: 500;
+}
+
+.heard {
+  margin: 0;
+  padding: 6px 12px;
+  align-self: flex-end;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 0.95rem;
+}
+
+.procedure-card {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.75);
+  border-left: 4px solid var(--accent);
+}
+
+.procedure-card p {
+  margin: 0 0 6px;
+}
+
+.procedure-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.procedure-safety {
+  color: #ff9f0a;
+}
+
+.procedure-when {
+  color: var(--muted);
+}
+
+.done-button {
+  width: 100%;
+  max-width: 600px;
+}
+
+.mic-button {
+  flex: none;
+}
+
+.live-status.ready .dot {
+  background: #30d158;
+}
+
+/* Live mode leaves more of the screen for the drawings. */
+.live-bar .caption-area {
+  max-height: 22vh;
+}
+
+.talk-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.keyboard-button {
+  flex: none;
+  min-width: 72px;
+}
+
+/* Hold-to-talk: press and hold, so no text selection or iOS callout menu on long press. */
+.talk-button {
+  flex: 1;
+  min-height: 64px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.talk-button.talking {
+  background: #30d158;
+  color: #000;
+  outline: 4px solid #fff;
+  outline-offset: 2px;
+}

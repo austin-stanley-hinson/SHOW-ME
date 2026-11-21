@@ -15,6 +15,7 @@ const REQUIRED_POINTS = {
   line: ['from', 'to'],
   point: ['at'],
   circle: ['at'],
+  rotate: ['at'],
   label: ['at'],
   step: ['at'],
   panel: ['at'],
@@ -25,6 +26,7 @@ const DEFAULT_COLOR = {
   line: '#ffffff',
   point: '#ffffff',
   circle: '#ffcc00',
+  rotate: '#ffcc00',
   label: '#ffffff',
   step: '#ffcc00',
   panel: '#ffffff',
@@ -37,6 +39,7 @@ const str = (s, max) => (typeof s === 'string' ? s.trim().slice(0, max) : '');
 
 function normalizeItem(raw, calc) {
   if (!raw || typeof raw !== 'object') return null;
+  if (raw.hidden) return null; // live mode: not in view / not re-found yet (CONTRACT v3.1)
   const fields = REQUIRED_POINTS[raw.type];
   if (!fields || typeof raw.id !== 'string' || !raw.id) return null;
   if (!fields.every((f) => isXY(raw[f]))) return null;
@@ -53,11 +56,18 @@ function normalizeItem(raw, calc) {
     text: formatLabel(label, typeof raw.quantity === 'string' ? raw.quantity : null, calc),
   };
   for (const f of fields) item[f] = clampXY(raw[f]);
+  if (raw.stale) item.stale = true; // live mode: the tracker lost this spot
+  if (raw.refs && typeof raw.refs === 'object') item.refs = raw.refs; // point ids, for gesture targets
 
   if (raw.type === 'step') item.n = raw.n;
   if (raw.type === 'circle') {
     const r = typeof raw.r === 'number' && Number.isFinite(raw.r) ? raw.r : 0.05;
     item.r = Math.min(0.3, Math.max(0.01, r)); // fraction of image width
+  }
+  if (raw.type === 'rotate') {
+    const r = typeof raw.r === 'number' && Number.isFinite(raw.r) ? raw.r : 0.06;
+    item.r = Math.min(0.3, Math.max(0.01, r));
+    item.dir = raw.dir === 'ccw' ? 'ccw' : 'cw';
   }
   if (raw.type === 'panel') {
     const isCalc = raw.content === 'calc';
@@ -88,9 +98,10 @@ function markUnchecked(text, flagged) {
 // data: the latest contract answer (from /api/ask or a fixture).
 // items (optional): the current view's items from src/client/view.js (applyResponse), so
 // follow-up answers that edit the view (clear: false) keep what's already on screen.
-export function buildScene(data, items = null) {
-  const calc = evaluateCalc(data?.calc ?? null);
-  const hasCalc = Boolean(data?.calc);
+// opts.calc (optional): an evaluateCalc result already computed (live mode gets one from onCalc).
+export function buildScene(data, items = null, opts = {}) {
+  const calc = opts.calc ?? evaluateCalc(data?.calc ?? null);
+  const hasCalc = Boolean(data?.calc) || Boolean(opts.calc);
   const drawn = [];
   const seen = new Set();
   const source = Array.isArray(items) ? items : Array.isArray(data?.draw) ? data.draw : [];
@@ -114,7 +125,7 @@ export function buildScene(data, items = null) {
     title: str(data?.title, 60),
     answer,
     // The answer with numbers the checker couldn't trace marked (CONTRACT: "mark untraced numbers").
-    answerParts: markUnchecked(answer, hasCalc ? auditText(answer, calc, data.calc) : []),
+    answerParts: markUnchecked(answer, hasCalc ? auditText(answer, calc, data?.calc) : []),
     followup: str(data?.followup_question, 300) || null,
     items: drawn,
     steps,
