@@ -3,6 +3,8 @@
 The one JSON shape that **the model returns**, the **server validates** (`api/_lib/validate.js`) and **the renderer draws**.
 Change it here first, in its own PR, with both humans' OK.
 
+Coordinates in this contract are always `[x, y]` 0–1. A provider may ask its model for a native format (Gemini: `[y, x]` 0–1000), and `api/_lib/coords.js` converts it before validation, so the renderer never sees it.
+
 **Core idea: the AI works in your view with you.** It answers, draws on the real objects, narrates out loud while
 gesturing at things, edits what's already on screen, guides tasks step by step, and builds checkable calculations.
 Any model can drive it (`MODEL_PROVIDER`); every device renders the same JSON (phone now, AR glasses later).
@@ -15,6 +17,7 @@ audits numbers in free text. Live changes (sliders, teammates, measurements) re-
 
 ```json
 {
+  "title": "string",
   "answer": "string",
   "followup_question": "string or null",
   "points": [ { "id": "hinge_left", "at": [0.42, 0.62] } ],
@@ -29,6 +32,7 @@ audits numbers in free text. Live changes (sliders, teammates, measurements) re-
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
+| `title` | string | null | no (→ null) | 2–5 word name of what's in view ("Folding chair"), e.g. for a panel header. Always the first key: Gemini sometimes garbles the first string it writes, and the validator cleans it. |
 | `answer` | string | yes | 1–3 sentences. The caption. |
 | `followup_question` | string \| null | no (→ null) | What the AI wants to ask (more info, another view). |
 | `points` | array | no (→ []) | Named real, visible spots: `{ id, at: [x,y] }`, max 16. Ids: letters, digits, `_`. |
