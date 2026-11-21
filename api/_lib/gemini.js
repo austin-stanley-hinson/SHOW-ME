@@ -3,13 +3,18 @@
 
 import { SYSTEM_PROMPT } from './prompt.js';
 import { validateResponse } from './validate.js';
-import { RESPONSE_SCHEMA } from './schema.js';
 
 // Tried in order; the next one is used if a model is busy (429/503) or gone (404).
 const MODELS = process.env.GEMINI_MODEL
   ? [process.env.GEMINI_MODEL]
   : ['gemini-3.6-flash', 'gemini-flash-latest']; // not lite: it produced runaway output in testing
-const TIMEOUT_MS = 55_000;
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 55_000; // try.mjs can raise it for slow days
+// "minimal" thinking is faster, but not every model accepts it (gemini-flash-latest returns 400).
+const MINIMAL_THINKING = new Set(['gemini-3.6-flash']);
+const withThinking = (body, model) =>
+  MINIMAL_THINKING.has(model)
+    ? { ...body, generationConfig: { ...body.generationConfig, thinkingConfig: { thinkingLevel: 'minimal' } } }
+    : body;
 const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
 
 // imageBase64: JPEG (or mimeType) as base64, no "data:" prefix.
@@ -39,29 +44,34 @@ export async function askGemini(imageBase64, question, previous = null, mimeType
     ],
     generationConfig: {
       responseMimeType: 'application/json',
-      responseSchema: RESPONSE_SCHEMA,
+      // No responseSchema: with it, gemini-3.6-flash wrote runaway numbers ("3.5000000000000004000…")
+      // until MAX_TOKENS in 5/5 tests; without it, 2/2 valid. validate.js checks every reply anyway.
+      // schema.js stays as the machine-readable contract for when this is fixed.
       temperature: 0.3,
       maxOutputTokens: 2048, // stops runaway output fast
-      thinkingConfig: { thinkingLevel: 'minimal' }, // faster; we only need positions + estimates
     },
   };
 
   // One time budget for all attempts. Gemini is slow under load (~50 s seen), so keep this under
   // the Vercel function limit but generous. Client timeout (askApi.js) must be a bit longer.
   const signal = AbortSignal.timeout(TIMEOUT_MS);
+  // Busy (429/503) or gone (404): try the next model; after a full pass, wait and go again.
   let res;
-  for (const model of MODELS) {
-    try {
-      res = await fetch(urlFor(model), {
-        signal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify(body),
-      });
-    } catch (e) {
-      return { ok: false, error: e.name === 'TimeoutError' ? 'timed out' : 'could not reach Gemini' };
+  outer: for (let round = 0; round < 3; round++) {
+    if (round > 0) await new Promise((r) => setTimeout(r, 1500 * round));
+    for (const model of MODELS) {
+      try {
+        res = await fetch(urlFor(model), {
+          signal,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify(withThinking(body, model)),
+        });
+      } catch (e) {
+        return { ok: false, error: e.name === 'TimeoutError' ? 'timed out' : 'could not reach Gemini' };
+      }
+      if (![404, 429, 503].includes(res.status)) break outer;
     }
-    if (![404, 429, 503].includes(res.status)) break;
   }
   if (!res.ok) return { ok: false, error: `Gemini HTTP ${res.status}` };
 
