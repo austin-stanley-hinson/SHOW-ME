@@ -130,7 +130,9 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     };
   }
 
-  const HANDLERS = { show, remove, gesture, procedure, calc };
+  // wait: the model has nothing to say (auto-check turns). The app drops that turn's audio.
+  const wait = (args) => ({ response: { ok: true }, update: { wait: { seen: typeof args?.seen === 'string' ? args.seen.slice(0, 120) : null } } });
+  const HANDLERS = { show, remove, gesture, procedure, calc, wait };
 
   const words = (id) => id.replace(/_/g, ' ');
   // "fork_arrow" -> "fork", "nametag_circle" -> "nametag"

@@ -12,15 +12,12 @@
 //     onStatus: (s) => setStatus(s),                 // 'connecting' | 'live' | 'speaking' | 'listening' | 'closed' | 'error: ...'
 //   });                                              // MUST be called from a user tap (iOS audio rules)
 //   live.say('typed question');  live.mute(true);  live.stop();
-//   live.watch(true)      // hands-free: during a procedure step, check progress by itself every few seconds
-//                         // (src/client/watch.js); replies that are just "waiting" are dropped silently.
 //   live.trackedScene()   // call every animation frame: the scene with positions moved to where those spots
 //                         // are NOW in the camera view (optical-flow tracking); items get stale: true if lost.
 
 import { createLiveTools } from './liveTools.js';
 import { createSceneTracker } from '../tracking/sceneTracker.js';
 import { createDebugLog } from './debugLog.js';
-import { watchPrompt, isWaitReply, canDecide, WATCH_GAP_MS, WATCH_TIMEOUT_MS } from './watch.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
@@ -138,6 +135,36 @@ export async function startLive(opts) {
   const ws = new WebSocket(`${WS_URL}?access_token=${encodeURIComponent(token)}`);
   let closed = false;
   let muted = false;
+  // ---- watching (hands-free): periodic auto-check turns while a procedure step is active ----
+  const WATCH_EVERY_MS = 4000;
+  // Only auto-check when the view has visibly changed since the step was given / last checked: in testing,
+  // an unchanged frame once got a false "done" and the procedure advanced. Tiny grayscale thumbnails, mean
+  // absolute difference 0-255.
+  const CHANGE_MIN = 8;
+  const thumbCanvas = document.createElement('canvas');
+  let baseThumb = null;
+  function thumb() {
+    if (!video.videoWidth) return null;
+    thumbCanvas.width = 32;
+    thumbCanvas.height = 24;
+    const c = thumbCanvas.getContext('2d', { willReadFrequently: true });
+    c.drawImage(video, 0, 0, 32, 24);
+    const d = c.getImageData(0, 0, 32, 24).data;
+    const g = new Uint8Array(32 * 24);
+    for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    return g;
+  }
+  const changeSince = (a, b) => {
+    if (!a || !b) return Infinity;
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+    return sum / a.length;
+  };
+  let watching = false;
+  let step = null; // the latest procedure from the model
+  let busy = false; // a turn is in progress (we asked, or the user spoke)
+  let lastTurnEnd = Date.now();
+  let autoTurn = null; // { audio: [], said: '', decided: null | 'speak' | 'quiet' } while an auto-check reply is held back
   let talking = false;
   let frameTimer = null;
   let micStream = null;
@@ -148,11 +175,6 @@ export async function startLive(opts) {
   let playAt = 0;
   const playing = new Set();
   function play(b64) {
-    if (check && !check.decided) {
-      check.audio.push(b64); // auto-check reply: hold until the transcript says it's worth hearing
-      return;
-    }
-    if (check?.drop) return;
     const bin = atob(b64);
     const pcm = new Int16Array(bin.length / 2);
     for (let i = 0; i < pcm.length; i++) pcm[i] = (bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8)) << 16 >> 16;
@@ -223,33 +245,6 @@ export async function startLive(opts) {
     srcNode.connect(micNode);
   }
 
-  // ---- hands-free watching (live.watch) ----
-  let watching = false;
-  let procedureNow = null; // the latest procedure from the model
-  let lastTurnEnd = Date.now();
-  let check = null; // the auto-check turn in flight: { sentAt, text, audio: [], decided, drop }
-  function decideCheck(final) {
-    if (!check || check.decided || !(final || canDecide(check.text))) return;
-    check.decided = true;
-    check.drop = isWaitReply(check.text) || (final && !check.text.trim());
-    log.event('watch-reply', { text: check.text, dropped: check.drop });
-    const held = check.audio;
-    check.audio = [];
-    if (!check.drop) {
-      for (const b64 of held) play(b64);
-      if (check.text) onSaid?.(check.text, false);
-    }
-  }
-  const watchTimer = setInterval(() => {
-    if (check && Date.now() - check.sentAt > WATCH_TIMEOUT_MS) check = null;
-    const stepActive = procedureNow && !procedureNow.complete;
-    if (!watching || !stepActive || check || talking || playing.size || closed) return;
-    if (Date.now() - lastTurnEnd < WATCH_GAP_MS) return;
-    check = { sentAt: Date.now(), text: '', audio: [], decided: false, drop: false };
-    log.event('watch-check', procedureNow.current);
-    send({ realtimeInput: { text: watchPrompt(procedureNow) } });
-  }, 500);
-
   // ---- messages ----
   let said = '';
   ws.onopen = () => send({ setup: {} }); // the locked setup from the token applies
@@ -270,6 +265,11 @@ export async function startLive(opts) {
       return;
     }
     if (m.toolCall) {
+      if (autoTurn) {
+        const names = m.toolCall.functionCalls.map((fc) => fc.name);
+        if (names.includes('wait')) autoTurn.decided = 'quiet';
+        else if (names.some((n) => ['procedure', 'show', 'gesture', 'remove', 'calc'].includes(n))) releaseAutoTurn();
+      }
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
         const { response, update } = tools.handle(fc);
         log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
@@ -291,40 +291,54 @@ export async function startLive(opts) {
         }
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) {
-          procedureNow = update.procedure;
+          step = update.procedure;
+          baseThumb = thumb(); // what the scene looked like when this step was given
           onProcedure?.(update.procedure);
         }
+        if (update?.wait) log.event('watch-quiet', update.wait.seen);
         if (update?.calc) onCalc?.(update.calc);
         return { id: fc.id, name: fc.name, response };
       });
-      send({ toolResponse: { functionResponses } });
+      // wait is non-blocking and gets NO reply: replying makes the model continue and call wait again (it looped
+      // about once a second in testing). Without a reply it calls wait once per auto-check and stays silent.
+      const replies = functionResponses.filter((r) => r.name !== 'wait');
+      if (replies.length) send({ toolResponse: { functionResponses: replies } });
     }
     const sc = m.serverContent;
     if (sc) {
       if (sc.interrupted) {
         stopPlayback();
         said = '';
-        check = null;
       }
-      for (const p of sc.modelTurn?.parts || []) if (p.inlineData?.data) play(p.inlineData.data);
+      if (sc.modelTurn) busy = true;
+      for (const p of sc.modelTurn?.parts || []) {
+        if (!p.inlineData?.data) continue;
+        if (autoTurn && autoTurn.decided !== 'speak') {
+          if (autoTurn.decided !== 'quiet') autoTurn.audio.push(p.inlineData.data); // hold until we know
+        } else play(p.inlineData.data);
+      }
       if (sc.turnComplete && said) log.event('said', said);
       if (sc.outputTranscription?.text) {
         said += sc.outputTranscription.text;
-        if (check) {
-          check.text = said;
-          decideCheck(false);
-        }
-        if (!check || (check.decided && !check.drop)) onSaid?.(said, false);
+        if (!autoTurn || autoTurn.decided === 'speak') onSaid?.(said, false);
       }
       if (sc.inputTranscription?.text) {
         log.event('heard', sc.inputTranscription.text);
         onHeard?.(sc.inputTranscription.text);
       }
       if (sc.turnComplete) {
-        if (check) decideCheck(true);
-        if (said && !check?.drop) onSaid?.(said, true);
+        if (autoTurn) {
+          // No tool decided it: speak only if it actually said something substantive.
+          const meaningful = said.trim().length > 20 && !/^(ok|okay|alright|all right|mm+|hmm+|got it)\b/i.test(said.trim());
+          if (autoTurn.decided === 'quiet' || (autoTurn.decided === null && !meaningful)) {
+            log.event('watch-dropped', said);
+            said = '';
+          } else releaseAutoTurn();
+          autoTurn = null;
+        }
+        if (said) onSaid?.(said, true);
         said = '';
-        check = null;
+        busy = false;
         lastTurnEnd = Date.now();
       }
     }
@@ -337,9 +351,40 @@ export async function startLive(opts) {
     status(e.code === 1000 ? 'closed' : `error: ${e.code} ${e.reason || ''}`.trim());
   };
 
+  function releaseAutoTurn() {
+    if (!autoTurn || autoTurn.decided === 'speak') return;
+    autoTurn.decided = 'speak';
+    for (const a of autoTurn.audio) play(a);
+    autoTurn.audio = [];
+    if (said) onSaid?.(said, false);
+  }
+  const watchTimer = setInterval(() => {
+    if (!watching || closed || busy || talking || playing.size || autoTurn) return;
+    if (!step || step.complete) return;
+    if (Date.now() - lastTurnEnd < WATCH_EVERY_MS) return;
+    if (st.tracker.motion > 6) return; // wait for the view to settle
+    const now = thumb();
+    const changed = changeSince(baseThumb, now);
+    if (changed < CHANGE_MIN) return; // nothing visibly happened: no point asking (and no false "done")
+    baseThumb = now; // next check needs a further change
+    autoTurn = { audio: [], decided: null };
+    busy = true;
+    const check = `[auto-check] Step ${step.current}${step.total ? ' of ' + step.total : ''}${step.done_when ? ': done when ' + step.done_when : ''}.`;
+    log.event('watch-check', { check, changed: Math.round(changed) });
+    send({ realtimeInput: { text: check } });
+    // If no reply comes, don't stay stuck.
+    setTimeout(() => {
+      if (autoTurn && busy) {
+        autoTurn = null;
+        busy = false;
+        lastTurnEnd = Date.now();
+      }
+    }, 15000);
+  }, 1000);
+
   function cleanup() {
-    clearInterval(sampleTimer);
     clearInterval(watchTimer);
+    clearInterval(sampleTimer);
     clearInterval(resnapTimer);
     clearInterval(motionTimer);
     clearInterval(frameTimer);
@@ -408,15 +453,27 @@ export async function startLive(opts) {
     debugReport: (extra) => log.report({ model: LIVE_MODEL_NAME, video: { w: video.videoWidth, h: video.videoHeight }, ...extra }),
     say(text) {
       log.event('typed', text);
-      if (!text) return;
-      check = null; // the user's own message wins over a pending auto-check
-      send({ realtimeInput: { text } });
+      busy = true;
+      if (text) send({ realtimeInput: { text } });
     },
     // Push-to-talk: call talkStart() when the button goes down and talkEnd() when it comes up.
+    // Hands-free: while on and a procedure step is active, the model checks the camera every few seconds,
+    // confirms finished steps / warns about mistakes, and otherwise stays silent.
+    watch(on) {
+      watching = Boolean(on);
+      log.event('watch', watching);
+    },
+    get watching() {
+      return watching;
+    },
     talkStart() {
       if (!pushToTalk || talking) return;
+      if (autoTurn) {
+        autoTurn.decided = 'quiet'; // the user talking wins over a held-back auto-check reply
+        autoTurn = null;
+      }
       talking = true;
-      check = null; // the user's own question wins over a pending auto-check
+      busy = true;
       stopPlayback(); // talking over the assistant interrupts it
       send({ realtimeInput: { activityStart: {} } });
       log.event('talk', 'start');
@@ -428,12 +485,6 @@ export async function startLive(opts) {
       log.event('talk', 'end');
     },
     pushToTalk,
-    // Hands-free step checking (see the top of this file). The UI turns it on while a step is active.
-    watch(on) {
-      watching = Boolean(on);
-      lastTurnEnd = Math.max(lastTurnEnd, Date.now() - WATCH_GAP_MS / 2); // first check a few seconds after turning on
-      log.event('watch', watching);
-    },
     mute(on) {
       muted = Boolean(on);
     },

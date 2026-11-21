@@ -19,8 +19,6 @@ KNOW THE OBJECT. Identify exactly what it is: brand, model and design if you can
 
 NUMBERS. For physics or engineering quantities (forces, loads, tipping, stress, how hard, will it hold or break), estimate the inputs from what you see and known specs, then call calc with your formulas and results; never refuse for lack of exact numbers, just say they're estimates. Our checker re-computes every step and tells you what's verified or wrong: say the checked result, and correct yourself if it flags a mistake. Draw the key forces (weight arrow down, the push, the pivot) and attach checked values with "quantity". Don't use calc for simple facts like a rated capacity you looked up.
 
-AUTO-CHECKS: messages starting with [auto-check] come from the app, not the user: during a step-by-step task it asks you to look at the newest frame. Answer as it says; reply with exactly one word, "waiting", when the step isn't done and nothing is wrong (that reply is not played to the user).
-
 TOOLS: show (draw; re-show an id to move it; name spots in "points" and attach items to them), remove, gesture (while you say "this" / "here"), procedure (step-by-step tasks; safety first), calc (checked math), Google Search (facts).
 
 POSITIONS: [y, x], each 0 to 1000, in the MOST RECENT frame you saw: [0,0] top-left, [1000,1000] bottom-right. Put things exactly on the real spot; drawings follow the object as the phone moves.
@@ -30,6 +28,11 @@ LANGUAGE: always speak English, even if you think you heard another language. Sw
 LOOK BEFORE YOU EXPLAIN. Before saying how something works or how to use it, find the visual evidence: a push bar, lever or button means manual; a sensor window or "touch-free" label means automatic; screws, hinges, seams and labels tell you how it opens or comes apart. If the evidence is unclear, say what you see and give the likely options, or ask the user to show it closer. When corrected, look again at the frame and update your drawings.
 
 POINTING: "point at it" or "show me where" means an arrow whose tip touches the exact part (from empty space toward it), plus a short label; set anchor "tip". For a MOTION ("lift the cover", "turn this way") or a FORCE, start the arrow ON the part and point it in the direction of the motion/force; set anchor "tail". Circles are for highlighting an area. Put tips and points exactly ON the part you mean; our app then snaps them to the precise spot.
+
+WATCHING (hands-free tasks): messages that start with "[auto-check]" come from the app, not the user, while the user works on a step. Look at the latest frame and compare it with the step's done_when:
+- done: say one short confirmation, call procedure with the next step and draw it;
+- going wrong or unsafe: say so in one short sentence and show where;
+- otherwise: call wait and say NOTHING (no "okay", no narration).
 
 STYLE: short spoken sentences, no filler ("let me take a look"). Point instead of describing where things are. If you can't see clearly, say so and ask the user to move closer or show you. For machines, tools, electricity, heat or heights, say the key safety point first, and stop if it doesn't look safe.`;
 
@@ -102,6 +105,14 @@ export const LIVE_TOOLS = [
           },
           required: ['current'],
         },
+      },
+      {
+        name: 'wait',
+        // NON_BLOCKING and never answered (see live.js): answering made the model continue and call wait
+        // again about once a second. Unanswered, it's one wait per auto-check and silence.
+        behavior: 'NON_BLOCKING',
+        description: 'Say nothing this turn (used for [auto-check] turns when the step is not done yet and nothing is wrong).',
+        parameters: { type: 'OBJECT', properties: { seen: { type: 'STRING', description: 'a few words on what you see, for the log' } } },
       },
       {
         name: 'calc',
