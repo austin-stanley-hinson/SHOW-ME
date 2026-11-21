@@ -1,4 +1,4 @@
-# Response Contract (v3)
+# Response Contract (v3.1)
 
 The one JSON shape that **the model returns**, the **server validates** (`api/_lib/validate.js`) and **the renderer draws**.
 Change it here first, in its own PR, with both humans' OK.
@@ -65,9 +65,14 @@ name; the renderer appends its value via `formatLabel`).
 | `line` | `from`, `to` | A distance, edge, axis |
 | `point` | `at` | A dot on a spot |
 | `circle` | `at`, `r` | Highlight a part. `r` = radius as a fraction of image width, clamped 0.01–0.3 |
+| `rotate` | `at`, `r`, `dir` (`"cw"` \| `"ccw"`, default `cw`) | Curved arrow around a spot for twisting / turning / unscrewing, as seen in the image. `r` like `circle` (default 0.06) |
 | `label` | `at`, `label` (required) | Text only |
 | `step` | `at`, `n` (integer), `label` (required) | A numbered instruction on the part to act on |
 | `panel` | `at`, `text`, optional `content: "calc"` | Text box (≤ 200 chars). With `content: "calc"`, append the calc lines and assumptions |
+
+**Arrows: `anchor`** (optional, `"tip"` | `"tail"`): which end touches the real part. `tip` = pointing at it ("press here");
+`tail` = a motion or force applied to it ("lift the cover", a weight), the arrow shows the direction. Precise snapping
+(live mode) moves only that end and shifts the arrow rigidly. If missing, the label's wording decides.
 
 Colors: weight `#ff3b30`, support/reaction `#34c759`, applied/tension `#0a84ff`, geometry `#ffffff`, highlight `#ffcc00`.
 
@@ -143,12 +148,28 @@ For "guide me through it" tasks, one step at a time:
 **Renderer must:** show ✓ / ⚠ per line, show `verdict.text` (flag it if `verdict.check === "mismatch"`), mark
 untraced numbers in the caption, label estimates `(est.)`, and always show assumptions when calc is shown.
 
+## Live mode (Gemini Live)
+
+The phone streams camera frames (~1 fps) and mic audio to Gemini Live with a one-use token from `POST /api/live-token`
+(body `{ "pushToTalk": true }` for hold-to-talk). The model acts through tools (`show`, `remove`, `gesture`,
+`procedure`, `calc`) whose arguments are the same draw items as above, positions in `[y, x]` 0–1000 converted to this
+contract by `src/client/liveTools.js`. `POST /api/point { image, targets: [{ id, label, at? }] }` returns precise
+`[x, y]` 0–1 positions on that frame, used to snap and re-find drawings.
+
+**Tracked scene** (`live.trackedScene()` / `createSceneTracker(video).current(scene)`, every animation frame): the same
+`{ items, points }`, positions moved to where those spots are now, plus per item:
+- `hidden: true`: not in view / not re-found yet, so don't draw it.
+- `stale: true`: couldn't be anchored to the current view, so fade it.
+
 ## Request (`POST /api/ask`)
 
 ```json
 { "image": "<base64 JPEG, no data: prefix>", "question": "string",
   "previous": { "question": "string", "response": { "draw": [ ...current scene... ], "...": "last answer" } } }
 ```
+Optional spoken question: `"audio": "<base64>", "audio_mime": "audio/mp4"` (then `question` may be `""`); the reply adds
+`"heard": "what the model heard"`.
+
 200 → the object above. Errors → non-200 `{ "error": "..." }`; show a friendly caption and draw nothing.
 
 ## Example 1: "What is this?" (narrate a tour)
