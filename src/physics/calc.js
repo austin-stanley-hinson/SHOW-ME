@@ -1,13 +1,14 @@
-// General-purpose calculation engine.
-// Gemini (or any LLM / app) writes a "calc sheet": named inputs + formula steps.
-// This file evaluates it safely (no eval) and shows the work, so every number on screen is ours.
+// General-purpose calculation CHECKER.
+// Any model (Gemini, Claude, GPT, ...) writes a "calc sheet": named inputs, formula steps AND its own results.
+// This file re-computes every step safely (no eval), marks each one ✓ or ⚠, and checks the yes/no verdict.
+// When an input changes live (slider, teammate, measurement), it re-runs the model's formulas.
 //
 //   evaluateCalc({
 //     inputs: [{ name: 'm', value: 16, unit: 'kg', label: 'Speaker mass', est: true }],
-//     steps:  [{ name: 'W', expr: 'm * g', unit: 'N', label: 'Weight' }],
+//     steps:  [{ name: 'W', expr: 'm * g', value: 157, unit: 'N', label: 'Weight' }],
 //     assumptions: ['...'],
 //   })
-//   -> { ok, quantities, lines, assumptions, errors, verdict }
+//   -> { ok, verified, mismatches, quantities, lines, assumptions, errors, verdict }
 //
 // Pure JS, no DOM, JSON in / JSON out: usable in the browser, on the server, or as an LLM tool.
 
@@ -156,6 +157,7 @@ export function evaluateCalc(calc, points3d = null, overrides = null) {
   const lines = [];
   const scope = Object.assign(Object.create(null), CONSTANTS);
   const taken = (n) => Object.hasOwn(scope, n) || Object.hasOwn(FUNCTIONS, n);
+  const changed = new Set(); // names whose value differs from what the model wrote
 
   for (const inp of Array.isArray(calc?.inputs) ? calc.inputs : []) {
     const { name, unit = '', label } = inp || {};
@@ -172,6 +174,7 @@ export function evaluateCalc(calc, points3d = null, overrides = null) {
       continue;
     }
     scope[name] = round3(value);
+    if (value !== inp.value) changed.add(name); // downstream results the model wrote are now stale
     const est = set === null && measured === null && inp.est !== false;
     quantities[name] = {
       value: scope[name], unit, name: label || name, estimated: est, measured: measured !== null,
@@ -182,6 +185,7 @@ export function evaluateCalc(calc, points3d = null, overrides = null) {
   }
 
   const steps = Array.isArray(calc?.steps) ? calc.steps.slice(0, MAX_STEPS) : [];
+  const mismatches = [];
   for (const step of steps) {
     const { name, expr, unit = '', label } = step || {};
     if (typeof name !== 'string' || !NAME.test(name) || taken(name)) {
@@ -190,38 +194,77 @@ export function evaluateCalc(calc, points3d = null, overrides = null) {
     }
     try {
       const ast = parse(expr);
-      const v = evaluate(ast, scope);
-      if (!Number.isFinite(v)) throw new Error('result is not a finite number (divide by zero?)');
-      scope[name] = round3(v);
-      quantities[name] = { value: scope[name], unit, name: label || name, estimated: false };
+      const computed = evaluate(ast, scope);
+      if (!Number.isFinite(computed)) throw new Error('result is not a finite number (divide by zero?)');
+      const claimed = typeof step.value === 'number' && Number.isFinite(step.value) ? step.value : null;
+      const stale = dependsOn(ast, changed);
+      let value, check;
+      if (claimed !== null && !stale) {
+        // Audit the model's own arithmetic, using the model's own values for everything upstream.
+        check = agrees(claimed, computed) ? 'ok' : 'mismatch';
+        value = claimed;
+        if (check === 'mismatch') mismatches.push({ name, claimed, computed: round3(computed) });
+      } else {
+        // No result given, or an input upstream changed (slider, teammate, measurement): re-run the formula.
+        check = claimed === null ? 'computed' : 'updated';
+        value = round3(computed);
+        if (claimed !== null && !agrees(claimed, computed)) changed.add(name);
+      }
+      if (check === 'computed') changed.add(name);
+      scope[name] = value;
+      quantities[name] = { value, unit, name: label || name, estimated: false, check, ...(check === 'mismatch' && { expected: round3(computed) }) };
       const work = ast.t === 'num' || ast.t === 'var' ? '' : ` = ${show(ast, scope)}`;
-      lines.push(`${label || name}: ${name}${work} = ${fmt(v)}${unitText(unit)}`);
+      const mark =
+        check === 'ok' ? ' ✓' : check === 'mismatch' ? ` ⚠ checker gets ${fmt(computed)}${unitText(unit)}` : check === 'updated' ? ' (updated)' : '';
+      lines.push(`${label || name}: ${name}${work} = ${fmt(value)}${unitText(unit)}${mark}`);
     } catch (e) {
       errors.push(`step "${name}": ${e.message}`);
     }
   }
 
-  // Verdict: our code picks the conclusion from the number, so the caption can never contradict the math.
-  // calc.verdict = { expr: "M_tip - M_rest", if_positive: "It would tip over.", if_not: "It stays up." }
+  // Verdict: the model states its yes/no conclusion and the formula behind it; we check they agree.
+  // calc.verdict = { expr: "M_tip - M_rest", if_positive: "It tips.", if_not: "It stays up.", claim: "positive" | "not" }
   let verdict = null;
   const v = calc?.verdict;
-  if (v && typeof v === "object") {
+  if (v && typeof v === 'object') {
     try {
-      if (typeof v.if_positive !== "string" || typeof v.if_not !== "string") throw new Error("needs if_positive and if_not text");
+      if (typeof v.if_positive !== 'string' || typeof v.if_not !== 'string') throw new Error('needs if_positive and if_not text');
       const ast = parse(v.expr);
       const x = evaluate(ast, scope);
-      if (!Number.isFinite(x)) throw new Error("result is not a finite number");
-      const text = x > 0 ? v.if_positive : v.if_not;
-      verdict = { value: round3(x), text };
-      lines.push(`Check: ${show(ast, scope)} = ${fmt(x)} ${x > 0 ? ">" : "≤"} 0 → ${text}`);
+      if (!Number.isFinite(x)) throw new Error('result is not a finite number');
+      const sign = x > 0 ? 'positive' : 'not';
+      const claim = v.claim === 'positive' || v.claim === 'not' ? v.claim : null;
+      const stale = dependsOn(ast, changed);
+      const check = claim === null ? 'computed' : stale ? 'updated' : claim === sign ? 'ok' : 'mismatch';
+      const shown = check === 'mismatch' ? claim : sign; // show the model's claim, flagged, if it disagrees
+      const text = shown === 'positive' ? v.if_positive : v.if_not;
+      verdict = { value: round3(x), text, check, ...(check === 'mismatch' && { expected: sign === 'positive' ? v.if_positive : v.if_not }) };
+      if (check === 'mismatch') mismatches.push({ name: 'verdict', claimed: claim, computed: sign });
+      const mark = check === 'ok' ? ' ✓' : check === 'mismatch' ? ` ⚠ the numbers say: ${verdict.expected}` : check === 'updated' ? ' (updated)' : '';
+      lines.push(`Check: ${show(ast, scope)} = ${fmt(x)} ${x > 0 ? '>' : '≤'} 0 → ${text}${mark}`);
     } catch (e) {
       errors.push(`verdict: ${e.message}`);
     }
   }
 
   const ok = errors.length === 0 && steps.length > 0;
-  return { ok, quantities, lines, assumptions, errors, verdict };
+  return { ok, verified: ok && mismatches.length === 0, mismatches, quantities, lines, assumptions, errors, verdict };
 }
+
+// Does this formula use any of these names?
+function dependsOn(ast, names) {
+  if (!names.size) return false;
+  switch (ast.t) {
+    case 'var': return names.has(ast.n);
+    case 'neg': return dependsOn(ast.a, names);
+    case 'op': return dependsOn(ast.a, names) || dependsOn(ast.b, names);
+    case 'call': return ast.args.some((a) => dependsOn(a, names));
+    default: return false;
+  }
+}
+
+// The model's number vs ours: 1.5% relative (models round as they go), or tiny absolute near zero.
+const agrees = (claimed, computed) => Math.abs(claimed - computed) <= 0.015 * Math.abs(computed) + 1e-6;
 
 // Label text for a draw item, per CONTRACT.md "How quantity is displayed".
 export function formatLabel(label, quantityKey, result) {
@@ -232,4 +275,29 @@ export function formatLabel(label, quantityKey, result) {
   if (q.estimated) return `${name} ≈ ${fmt(q.value)}${unit} (est.)`;
   const tag = q.set ? (q.by ? ` (set by ${q.by})` : ' (set)') : q.measured ? ' (measured)' : '';
   return `${name} = ${fmt(q.value)}${unit}${tag}`;
+}
+
+// ---------- text audit ----------
+// Numbers with units in free text (the caption, panel text) must match something the checker knows:
+// an input, a checked step, a number written in a formula, or a unit conversion of one of those.
+// Returns the numbers it could not trace, e.g. [{ text: '107 N', value: 107, unit: 'N' }].
+const UNIT_RE = /(\d+(?:[.,]\d+)?)\s*(N·m|N\*m|Nm|N|kN|kg|lbs?|lbf|m|cm|mm|°|deg|MPa|%)(?![A-Za-z])/g;
+const CONVERSIONS = [1, 2.20462, 1 / 2.20462, 4.44822, 1 / 4.44822, 100, 0.01, 1000, 0.001, 9.81, 1 / 9.81];
+
+export function auditText(text, result, calc = null) {
+  if (typeof text !== 'string' || !text) return [];
+  const known = Object.values(result?.quantities || {}).map((q) => q.value).filter(Number.isFinite);
+  for (const s of Array.isArray(calc?.steps) ? calc.steps : []) {
+    for (const m of String(s?.expr ?? '').matchAll(/\d*\.?\d+/g)) known.push(Number(m[0]));
+  }
+  if (result?.verdict) {
+    for (const m of String(calc?.verdict?.expr ?? '').matchAll(/\d*\.?\d+/g)) known.push(Number(m[0]));
+  }
+  const traced = (v) => known.some((k) => CONVERSIONS.some((c) => Math.abs(k * c - v) <= 0.015 * Math.abs(v) + 0.05));
+  const out = [];
+  for (const m of text.matchAll(UNIT_RE)) {
+    const value = Number(m[1].replace(',', '.'));
+    if (!traced(value)) out.push({ text: m[0], value, unit: m[2] });
+  }
+  return out;
 }

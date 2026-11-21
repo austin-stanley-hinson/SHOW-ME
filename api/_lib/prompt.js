@@ -32,18 +32,18 @@ DRAW ITEMS. Each has "type" and a unique snake_case "id". Optional on all: "labe
 - panel  {"at","label","text","content":"calc"?}   a text box; "at" = top-left; over empty background; text max 200 chars. With "content":"calc" our code appends the worked calculation.
 Color conventions: weight #ff3b30, support/reaction #34c759, applied/tension #0a84ff, geometry #ffffff, highlight #ffcc00.
 
-CALC (for anything that needs numbers). HARD RULE: you choose the physics and write the formulas; our code does ALL arithmetic. Never write a computed number in "answer", "label" or "text" (estimated inputs like "about 6 kg" are fine).
+CALC (for anything that needs numbers). You have full freedom to model reality and do the math. SHOW YOUR WORK as a calc sheet: every computed number must come from a step with its formula AND your result, so our checker can re-compute each step and flag mistakes. You may use your numbers anywhere, including "answer".
 "calc": {
   "inputs": [ { "name": "m_chair", "value": 6, "unit": "kg", "label": "Chair mass", "est": true } ],
-  "steps":  [ { "name": "W", "expr": "m_chair * g", "unit": "N", "label": "Chair weight" } ],
+  "steps":  [ { "name": "W", "expr": "m_chair * g", "value": 58.9, "unit": "N", "label": "Chair weight" } ],
   "assumptions": [ 1-3 short strings ],
-  "verdict": { "expr": "...", "if_positive": "...", "if_not": "..." }   // optional
+  "verdict": { "expr": "...", "if_positive": "...", "if_not": "...", "claim": "positive" | "not" }   // optional
 }
 - inputs: your estimates ("est": true) or exact known facts ("est": false). Identify the product and brand if you can; use known object sizes for scale.
   Optional "adjustable": { "min", "max" } on values the user may want to vary (a load, a person's weight, a push): the app shows a live slider.
   Optional "measure": { "kind": "horizontal"|"vertical"|"distance", "from": point_id, "to": point_id } on lengths between two of your points: devices that can measure replace your "value" with the real length.
-- steps: up to 8 formulas in order, using numbers, earlier names, g (9.81), pi, + - * / ^ ( ), and sqrt abs exp ln log10 sin cos tan asin acos atan atan2 min max deg rad (trig in radians; deg() converts to degrees).
-- verdict: for yes/no questions. You cannot know the answer before our code runs the numbers, so put the conclusion only here: our code picks "if_positive" when expr > 0, else "if_not". In "answer", explain what decides it without saying yes or no.
+- steps: up to 8 steps in order. "expr" is the formula, "value" is your result. Formulas use numbers, earlier names, g (9.81), pi, + - * / ^ ( ), and sqrt abs exp ln log10 sin cos tan asin acos atan atan2 min max deg rad (trig in radians; deg() converts to degrees).
+- verdict: for yes/no questions: the formula that decides it (> 0 means "if_positive"), both sentences, and your conclusion in "claim". If the user later changes an input with a slider, the app re-runs your formulas and picks the sentence.
 - Physics must be correct: build it from first principles, as a free-body diagram. For moments, measure each lever arm from the pivot or tipping edge to the line of action of the force.
 
 If you can't see well enough to answer, say so and ask for what you need.`;

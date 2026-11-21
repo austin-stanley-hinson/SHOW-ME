@@ -5,7 +5,7 @@
 // Prints Gemini's validated JSON, then what the panel/labels would show after calc.js.
 
 import { readFileSync } from 'node:fs';
-import { askGemini } from '../_lib/gemini.js';
+import { askModel } from '../_lib/model.js';
 import { evaluateCalc, formatLabel } from '../../src/physics/calc.js';
 
 const [imagePath, question] = process.argv.slice(2);
@@ -17,7 +17,7 @@ if (!imagePath || !question) {
 const t0 = Date.now();
 const ext = imagePath.split('.').pop().toLowerCase();
 const mime = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' }[ext] || 'image/jpeg';
-const result = await askGemini(readFileSync(imagePath).toString('base64'), question, null, mime);
+const result = await askModel(readFileSync(imagePath).toString('base64'), question, null, mime);
 console.log(`(${Date.now() - t0} ms)`);
 if (!result.ok) {
   console.error('FAILED:', result.error);
@@ -39,6 +39,11 @@ for (const item of data.draw) {
     if (physics.assumptions.length) console.log('   Assumptions: ' + physics.assumptions.join('; '));
   }
 }
-if (physics.verdict) console.log('VERDICT (from our code): ' + physics.verdict.text);
+if (physics.verdict) console.log('VERDICT: ' + physics.verdict.text + ' [' + physics.verdict.check + ']');
+import('../../src/physics/calc.js').then(({ auditText }) => {
+  const loose = [data.answer, ...data.draw.map((i) => i.text || '')].flatMap((t) => auditText(t, physics, data.calc));
+  if (data.calc) console.log(loose.length ? 'TEXT AUDIT: untraced numbers ⚠ ' + loose.map((x) => x.text).join(', ') : 'TEXT AUDIT: all numbers in the text trace to checked values ✓');
+});
+if (data.calc) console.log(physics.verified ? 'CHECKER: all steps verified ✓' : 'CHECKER: ' + physics.mismatches.length + ' mismatch(es) ⚠ ' + JSON.stringify(physics.mismatches));
 if (physics.errors.length) console.log('CALC ERRORS: ' + physics.errors.join('; '));
 if (data.calc && !data.draw.some((i) => i.content === 'calc')) for (const line of physics.lines) console.log('   ' + line);

@@ -190,3 +190,76 @@ test('overrides: a teammate sets an input live; clamped to its adjustable range'
   const ignored = evaluateCalc(sheet, null, { m_person: { value: 'x' }, nope: { value: 1 } });
   assert.equal(ignored.quantities.M.value, 157);
 });
+
+test('checker: the model does the math, we verify each step and the verdict', () => {
+  const sheet = {
+    inputs: [
+      { name: 'm', value: 3.5, unit: 'kg', label: 'Chair mass', adjustable: { min: 1, max: 20 } },
+      { name: 'd', value: 0.18, unit: 'm', label: 'CG to rear feet' },
+      { name: 'h', value: 0.75, unit: 'm', label: 'Push height' },
+    ],
+    steps: [
+      { name: 'W', expr: 'm * g', value: 34.3, unit: 'N', label: 'Weight' },
+      { name: 'M', expr: 'W * d', value: 6.17, unit: 'N·m', label: 'Restoring moment' },
+      { name: 'F', expr: 'M / h', value: 9.5, unit: 'N', label: 'Push to tip' }, // wrong: 6.17/0.75 = 8.23
+    ],
+    verdict: { expr: 'F - 5', if_positive: 'A 5 N push will not tip it.', if_not: 'A 5 N push tips it.', claim: 'positive' },
+  };
+  const r = evaluateCalc(sheet);
+  assert.equal(r.ok, true, r.errors.join('; '));
+  assert.equal(r.verified, false);
+  assert.equal(r.quantities.W.check, 'ok');
+  assert.equal(r.quantities.M.check, 'ok');
+  assert.equal(r.quantities.F.check, 'mismatch');
+  assert.equal(r.quantities.F.value, 9.5); // the model's number is shown...
+  assert.equal(r.quantities.F.expected, 8.23); // ...with ours next to it
+  assert.equal(r.lines[3], 'Weight: W = 3.5 × 9.81 = 34.3 N ✓');
+  assert.equal(r.lines[5], 'Push to tip: F = 6.17 / 0.75 = 9.5 N ⚠ checker gets 8.23 N');
+  assert.equal(r.verdict.check, 'ok'); // 9.5 - 5 > 0 agrees with "positive"
+  assert.deepEqual(r.mismatches, [{ name: 'F', claimed: 9.5, computed: 8.23 }]);
+
+  // Correct sheet: everything verified.
+  const good = structuredClone(sheet);
+  good.steps[2].value = 8.23;
+  assert.equal(evaluateCalc(good).verified, true);
+
+  // Wrong conclusion is flagged.
+  const badClaim = structuredClone(good);
+  badClaim.verdict.claim = 'not';
+  const b = evaluateCalc(badClaim);
+  assert.equal(b.verdict.check, 'mismatch');
+  assert.equal(b.verdict.text, 'A 5 N push tips it.');
+  assert.equal(b.verdict.expected, 'A 5 N push will not tip it.');
+
+  // A slider changes the mass: every downstream step and the verdict re-run from the model's formulas.
+  const live = evaluateCalc(good, null, { m: { value: 10, by: 'austin' } });
+  assert.equal(live.quantities.W.check, 'updated');
+  assert.equal(live.quantities.W.value, 98.1);
+  assert.equal(live.quantities.F.check, 'updated');
+  assert.ok(Math.abs(live.quantities.F.value - 23.5) < 0.2); // 10 * 9.81 * 0.18 / 0.75
+  assert.equal(live.verdict.check, 'updated');
+  assert.equal(live.verified, true);
+});
+
+test('text audit: numbers in the caption must trace back to checked values', async () => {
+  const { auditText } = await import('./calc.js');
+  const calc = {
+    inputs: [
+      { name: 'm_person', value: 113, unit: 'kg' },
+      { name: 'm_chair', value: 3.5, unit: 'kg' },
+      { name: 'd', value: 0.2, unit: 'm' },
+      { name: 'h', value: 0.82, unit: 'm' },
+    ],
+    steps: [
+      { name: 'W', expr: '(m_person + m_chair) * g', value: 1140, unit: 'N' },
+      { name: 'F_tip', expr: 'W * d / h', value: 278, unit: 'N' },
+    ],
+    verdict: { expr: '300 - m_person * 2.21', if_positive: 'ok', if_not: 'no', claim: 'positive' },
+  };
+  const r = evaluateCalc(calc);
+  const caption =
+    'It can hold a 250 lb (113 kg) person; it is rated for 300 lbs. With someone seated it takes 279 N (62.7 lbs) ' +
+    'to tip it, but pushing back with just 24 lbs (107 N) will tip it.';
+  assert.deepEqual(auditText(caption, r, calc).map((x) => x.text), ['24 lbs', '107 N']);
+  assert.deepEqual(auditText('No numbers here.', r, calc), []);
+});
