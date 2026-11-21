@@ -1,0 +1,19 @@
+[Unit]
+Description=Show Me session relay
+After=network.target
+
+[Service]
+User=relay
+WorkingDirectory=/opt/relay
+Environment=PORT=8787
+Environment=ALLOWED_ORIGINS=__ORIGINS__
+ExecStart=/usr/bin/node /opt/relay/relay.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

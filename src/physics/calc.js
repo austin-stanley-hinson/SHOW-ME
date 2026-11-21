@@ -136,9 +136,20 @@ export function measure(m, points3d) {
   return null;
 }
 
+// "adjustable": { min, max } marks an input users can change live (e.g. a load slider).
+function rangeOf(a) {
+  return a && Number.isFinite(a.min) && Number.isFinite(a.max) && a.min < a.max ? { min: a.min, max: a.max } : null;
+}
+function clampToRange(v, a) {
+  const r = rangeOf(a);
+  return r ? Math.min(r.max, Math.max(r.min, v)) : v;
+}
+
 // ---------- the sheet ----------
 // points3d (optional): measured 3D points; inputs with a "measure" use them, else fall back to "value".
-export function evaluateCalc(calc, points3d = null) {
+// overrides (optional): { name: { value, by } } set live by a user or teammate (sliders, shared session).
+//   They win over measurements and estimates, clamped to the input's "adjustable" range if it has one.
+export function evaluateCalc(calc, points3d = null, overrides = null) {
   const assumptions = Array.isArray(calc?.assumptions) ? calc.assumptions.filter((a) => typeof a === 'string') : [];
   const errors = [];
   const quantities = {};
@@ -152,16 +163,21 @@ export function evaluateCalc(calc, points3d = null) {
       errors.push(`bad or duplicate input name "${name}"`);
       continue;
     }
-    const measured = inp.measure ? measure(inp.measure, points3d) : null;
-    const value = measured ?? inp.value;
+    const o = overrides && Object.hasOwn(overrides, name) ? overrides[name] : null;
+    const set = o && Number.isFinite(o.value) ? clampToRange(o.value, inp.adjustable) : null;
+    const measured = set === null && inp.measure ? measure(inp.measure, points3d) : null;
+    const value = set ?? measured ?? inp.value;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       errors.push(`input "${name}" is not a number`);
       continue;
     }
     scope[name] = round3(value);
-    const est = measured === null && inp.est !== false;
-    quantities[name] = { value: scope[name], unit, name: label || name, estimated: est, measured: measured !== null };
-    const tag = measured !== null ? ' (measured)' : est ? ' (est.)' : '';
+    const est = set === null && measured === null && inp.est !== false;
+    quantities[name] = {
+      value: scope[name], unit, name: label || name, estimated: est, measured: measured !== null,
+      set: set !== null, by: set !== null ? o.by || null : null, adjustable: rangeOf(inp.adjustable),
+    };
+    const tag = set !== null ? (o.by ? ` (set by ${o.by})` : ' (set)') : measured !== null ? ' (measured)' : est ? ' (est.)' : '';
     lines.push(`${label || name}: ${name} ${est ? '≈' : '='} ${fmt(value)}${unitText(unit)}${tag}`);
   }
 
@@ -214,5 +230,6 @@ export function formatLabel(label, quantityKey, result) {
   const name = label || q.name;
   const unit = unitText(q.unit);
   if (q.estimated) return `${name} ≈ ${fmt(q.value)}${unit} (est.)`;
-  return `${name} = ${fmt(q.value)}${unit}${q.measured ? ' (measured)' : ''}`;
+  const tag = q.set ? (q.by ? ` (set by ${q.by})` : ' (set)') : q.measured ? ' (measured)' : '';
+  return `${name} = ${fmt(q.value)}${unit}${tag}`;
 }

@@ -170,3 +170,23 @@ test('measured inputs: 3D points from the phone replace estimates', () => {
   assert.equal(noPts.lines[1], 'Leg spread: d ≈ 0.4 m (est.)');
   assert.equal(noPts.ok, true);
 });
+
+test('overrides: a teammate sets an input live; clamped to its adjustable range', () => {
+  const sheet = {
+    inputs: [
+      { name: 'm_person', value: 80, unit: 'kg', label: 'Person', adjustable: { min: 0, max: 200 } },
+      { name: 'a', value: 0.2, unit: 'm', label: 'Lever arm' },
+    ],
+    steps: [{ name: 'M', expr: 'm_person * g * a', unit: 'N·m', label: 'Moment' }],
+  };
+  const base = evaluateCalc(sheet);
+  assert.equal(base.quantities.M.value, 157);
+  assert.deepEqual(base.quantities.m_person.adjustable, { min: 0, max: 200 });
+  const set = evaluateCalc(sheet, null, { m_person: { value: 120, by: 'austin' } });
+  assert.equal(set.lines[0], 'Person: m_person = 120 kg (set by austin)');
+  assert.equal(set.quantities.M.value, 235);
+  const clamped = evaluateCalc(sheet, null, { m_person: { value: 999 } });
+  assert.equal(clamped.quantities.m_person.value, 200);
+  const ignored = evaluateCalc(sheet, null, { m_person: { value: 'x' }, nope: { value: 1 } });
+  assert.equal(ignored.quantities.M.value, 157);
+});
