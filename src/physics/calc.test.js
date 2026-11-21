@@ -262,4 +262,6 @@ test('text audit: numbers in the caption must trace back to checked values', asy
     'to tip it, but pushing back with just 24 lbs (107 N) will tip it.';
   assert.deepEqual(auditText(caption, r, calc).map((x) => x.text), ['24 lbs', '107 N']);
   assert.deepEqual(auditText('No numbers here.', r, calc), []);
+  assert.deepEqual(auditText('About 300 N with someone seated, roughly 1100 N total.', r, calc), []); // rounded mentions trace
+  assert.deepEqual(auditText('It takes 400 N.', r, calc).map((x) => x.text), ['400 N']);
 });

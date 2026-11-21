@@ -39,5 +39,7 @@ export async function askModel(imageBase64, question, previous = null, mimeType 
   } catch {
     return { ok: false, error: `model did not return valid JSON (finish: ${meta.finish}, ${out.text.length} chars)`, meta };
   }
-  return { ...validateResponse(data), meta };
+  // The client sends its current scene as previous.response, so narration/edits may refer to items on screen.
+  const previousIds = Array.isArray(previous?.response?.draw) ? previous.response.draw.map((i) => i?.id).filter((x) => typeof x === 'string') : [];
+  return { ...validateResponse(data, { previousIds }), meta };
 }

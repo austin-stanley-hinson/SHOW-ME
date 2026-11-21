@@ -12,6 +12,43 @@ const TYPES = {
 };
 const MAX_ITEMS = 12;
 const MAX_POINTS = 16;
+const MAX_NARRATION = 8;
+const GESTURES = new Set(['point', 'pulse', 'trace', 'circle']);
+const ID_RE = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+const str = (v, max) => (typeof v === 'string' && v.trim() ? v.slice(0, max) : null);
+
+// narration: [{ say, gesture?: { type, target } }]. A gesture's target is a draw item id or a point id;
+// unknown targets are dropped (the line is still spoken). The client may also target items already on screen,
+// so ids listed in "keepIds" (from the previous scene) count too.
+function cleanNarration(raw, targets) {
+  const out = [];
+  for (const n of Array.isArray(raw) ? raw : []) {
+    const say = str(n?.say, 200);
+    if (!say) continue;
+    const g = n.gesture;
+    const gesture = g && GESTURES.has(g.type) && typeof g.target === 'string' && targets.has(g.target) ? { type: g.type, target: g.target } : null;
+    out.push(gesture ? { say, gesture } : { say });
+    if (out.length === MAX_NARRATION) break;
+  }
+  return out;
+}
+
+// procedure: { title, current, total, done_when, safety: [] } for guided step-by-step tasks.
+function cleanProcedure(p) {
+  if (!p || typeof p !== 'object') return null;
+  const current = Number.isInteger(p.current) && p.current > 0 ? p.current : null;
+  if (!current) return null;
+  const total = Number.isInteger(p.total) && p.total >= current ? p.total : null;
+  const safety = (Array.isArray(p.safety) ? p.safety : []).map((x) => str(x, 160)).filter(Boolean).slice(0, 3);
+  return {
+    title: str(p.title, 60),
+    current,
+    total,
+    done_when: str(p.done_when, 160),
+    complete: p.complete === true,
+    safety,
+  };
+}
 
 const isXY = (p) => Array.isArray(p) && p.length === 2 && p.every((n) => typeof n === 'number' && Number.isFinite(n));
 const clampXY = (p) => p.map((n) => Math.min(1, Math.max(0, n)));
@@ -59,7 +96,8 @@ function cleanItem(item, points) {
   return out;
 }
 
-export function validateResponse(data) {
+// options.previousIds: ids of items currently on screen (lets narration/edits refer to them).
+export function validateResponse(data, options = {}) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: 'not an object' };
   if (typeof data.answer !== 'string' || !data.answer.trim()) return { ok: false, error: 'missing answer' };
   // Missing optional-ish keys become null / [] rather than rejecting a good answer.
@@ -83,6 +121,13 @@ export function validateResponse(data) {
     if (draw.length === MAX_ITEMS) break;
   }
 
+  // Scene edits: "clear" (default true) starts a fresh view; false keeps what's on screen, and draw items
+  // with an existing id replace that item. "remove" lists ids to take away.
+  const clear = data.clear !== false;
+  const remove = clear ? [] : (Array.isArray(data.remove) ? data.remove : []).filter((id) => typeof id === 'string' && ID_RE.test(id)).slice(0, 20);
+  const previousIds = Array.isArray(options.previousIds) ? options.previousIds : [];
+  const targets = new Set([...draw.map((i) => i.id), ...points.list.map((p) => p.id), ...(clear ? [] : previousIds.filter((id) => !remove.includes(id)))]);
+
   return {
     ok: true,
     value: {
@@ -91,6 +136,10 @@ export function validateResponse(data) {
       points: points.list,
       calc: data.calc,
       draw,
+      clear,
+      remove,
+      narration: cleanNarration(data.narration, targets),
+      procedure: cleanProcedure(data.procedure),
     },
   };
 }

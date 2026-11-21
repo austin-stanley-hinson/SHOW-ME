@@ -81,3 +81,56 @@ test('circle highlights a part; radius required and clamped', () => {
   });
   assert.deepEqual(r.value.draw.map((i) => [i.id, i.r]), [['bolt', 0.05], ['huge', 0.3]]);
 });
+
+test('narration with gestures, scene edits and procedures', () => {
+  const r = validateResponse(
+    {
+      answer: 'Here is how to fold it.',
+      clear: false,
+      remove: ['old_arrow', 'bad id!'],
+      points: [{ id: 'hinge_left', at: [0.4, 0.62] }],
+      draw: [
+        { type: 'step', id: 'step1', at: 'hinge_left', n: 1, label: 'Lift the seat' },
+        { type: 'arrow', id: 'lift', from: [0.5, 0.6], to: [0.5, 0.4] },
+      ],
+      narration: [
+        { say: 'First, lift the front of the seat.', gesture: { type: 'trace', target: 'lift' } },
+        { say: 'It pivots on this hinge.', gesture: { type: 'pulse', target: 'hinge_left' } },
+        { say: 'Keep your fingers clear of this bar.', gesture: { type: 'point', target: 'warning_bar' } }, // on screen from before
+        { say: 'Unknown target is dropped, line kept.', gesture: { type: 'point', target: 'nope' } },
+        { say: '' },
+      ],
+      procedure: { title: 'Fold the chair', current: 1, total: 3, done_when: 'The seat is vertical.', safety: ['Mind your fingers at the hinge.'] },
+    },
+    { previousIds: ['warning_bar', 'old_arrow'] },
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.value.clear, false);
+  assert.deepEqual(r.value.remove, ['old_arrow']);
+  assert.deepEqual(r.value.narration.map((n) => n.gesture?.target ?? null), ['lift', 'hinge_left', 'warning_bar', null]);
+  assert.equal(r.value.procedure.current, 1);
+  assert.equal(r.value.procedure.done_when, 'The seat is vertical.');
+
+  const fresh = validateResponse({ answer: 'hi', draw: [], remove: ['x'], narration: [{ say: 'hi', gesture: { type: 'point', target: 'warning_bar' } }] }, { previousIds: ['warning_bar'] });
+  assert.equal(fresh.value.clear, true); // default: new view
+  assert.deepEqual(fresh.value.remove, []);
+  assert.equal(fresh.value.narration[0].gesture, undefined); // old items are gone after a clear
+  assert.equal(fresh.value.procedure, null);
+});
+
+test('contract v3 examples are valid, and the chair calc checks out', async () => {
+  const { evaluateCalc, auditText } = await import('../../src/physics/calc.js');
+  for (const name of ['what-is-this', 'fold-step1', 'chair-tip', 'nothing']) {
+    const raw = JSON.parse(readFileSync(new URL(`../fixtures/v3/${name}.json`, import.meta.url)));
+    const r = validateResponse(raw);
+    assert.equal(r.ok, true, name);
+    assert.equal(r.value.draw.length, raw.draw.length, `${name}: no items dropped`);
+    assert.equal(r.value.narration.length, (raw.narration || []).length, `${name}: narration kept`);
+    for (const n of r.value.narration) if (raw.narration.find((x) => x.say === n.say).gesture) assert.ok(n.gesture, `${name}: gesture target resolves`);
+    if (raw.calc) {
+      const c = evaluateCalc(raw.calc);
+      assert.equal(c.verified, true, `${name}: ${JSON.stringify(c.mismatches)} ${c.errors}`);
+      assert.deepEqual(auditText(raw.answer, c, raw.calc), [], `${name}: caption numbers trace`);
+    }
+  }
+});

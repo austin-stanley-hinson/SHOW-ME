@@ -39,6 +39,9 @@ for (const item of data.draw) {
     if (physics.assumptions.length) console.log('   Assumptions: ' + physics.assumptions.join('; '));
   }
 }
+for (const n of data.narration || []) console.log('SAY: ' + n.say + (n.gesture ? '  [' + n.gesture.type + ' → ' + n.gesture.target + ']' : ''));
+if (data.procedure) console.log('PROCEDURE: ' + JSON.stringify(data.procedure));
+console.log('SCENE: clear=' + data.clear + (data.remove?.length ? ' remove=' + data.remove.join(',') : ''));
 if (physics.verdict) console.log('VERDICT: ' + physics.verdict.text + ' [' + physics.verdict.check + ']');
 import('../../src/physics/calc.js').then(({ auditText }) => {
   const loose = [data.answer, ...data.draw.map((i) => i.text || '')].flatMap((t) => auditText(t, physics, data.calc));

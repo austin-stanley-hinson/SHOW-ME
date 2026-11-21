@@ -293,11 +293,23 @@ export function auditText(text, result, calc = null) {
   if (result?.verdict) {
     for (const m of String(calc?.verdict?.expr ?? '').matchAll(/\d*\.?\d+/g)) known.push(Number(m[0]));
   }
-  const traced = (v) => known.some((k) => CONVERSIONS.some((c) => Math.abs(k * c - v) <= 0.015 * Math.abs(v) + 0.05));
+  // A rounded mention counts: "about 8 N" traces to 8.23 at the number of significant digits written.
+  const sigDigits = (raw) => raw.replace(/^0+.?0*/, '').replace('.', '').replace(/0+$/, '').length || 1;
+  const roundTo = (x, d) => Number(x.toPrecision(Math.max(1, Math.min(21, d))));
+  const traced = (v, digits) =>
+    known.some((k) =>
+      CONVERSIONS.some((c) => {
+        const kc = k * c;
+        const close = Math.abs(kc - v) <= 0.015 * Math.abs(v) + 0.05;
+        const rounded = roundTo(kc, digits) === v && Math.abs(kc - v) <= 0.08 * Math.abs(kc);
+        return close || rounded;
+      }),
+    );
   const out = [];
   for (const m of text.matchAll(UNIT_RE)) {
-    const value = Number(m[1].replace(',', '.'));
-    if (!traced(value)) out.push({ text: m[0], value, unit: m[2] });
+    const raw = m[1].replace(',', '.');
+    const value = Number(raw);
+    if (!traced(value, sigDigits(raw))) out.push({ text: m[0], value, unit: m[2] });
   }
   return out;
 }
