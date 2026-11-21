@@ -1,0 +1,131 @@
+{
+  "answer": "It's a powered PA speaker, about 16 kg, on a tripod stand. Its weight goes straight down the pole and spreads across three feet, and it only tips if its center of mass gets pushed past the edge between two feet.",
+  "followup_question": "Want to know how hard you'd have to push it to knock it over?",
+  "physics": {
+    "model": "tripod_stand",
+    "inputs": {
+      "mass_kg": 16,
+      "stand_mass_kg": 4,
+      "leg_radius_m": 0.55,
+      "com_height_m": 1.4,
+      "push_height_m": 1.75
+    },
+    "assumptions": [
+      "12-inch powered PA speakers are usually 14–18 kg",
+      "Steel tripod stands are about 4 kg",
+      "Feet spread about 1.1 m across"
+    ]
+  },
+  "draw": [
+    {
+      "type": "point",
+      "id": "center_of_mass",
+      "at": [
+        0.52,
+        0.3
+      ],
+      "label": "Center of mass",
+      "color": "#ffffff"
+    },
+    {
+      "type": "arrow",
+      "id": "weight",
+      "from": [
+        0.52,
+        0.3
+      ],
+      "to": [
+        0.52,
+        0.52
+      ],
+      "label": "W",
+      "quantity": "weight",
+      "color": "#ff3b30"
+    },
+    {
+      "type": "arrow",
+      "id": "leg_left",
+      "from": [
+        0.36,
+        0.99
+      ],
+      "to": [
+        0.36,
+        0.88
+      ],
+      "label": "Leg",
+      "quantity": "leg_load",
+      "color": "#34c759"
+    },
+    {
+      "type": "arrow",
+      "id": "leg_right",
+      "from": [
+        0.67,
+        0.99
+      ],
+      "to": [
+        0.67,
+        0.88
+      ],
+      "label": "Leg",
+      "quantity": "leg_load",
+      "color": "#34c759"
+    },
+    {
+      "type": "arrow",
+      "id": "leg_back",
+      "from": [
+        0.56,
+        0.88
+      ],
+      "to": [
+        0.56,
+        0.78
+      ],
+      "label": "Leg",
+      "quantity": "leg_load",
+      "color": "#34c759"
+    },
+    {
+      "type": "line",
+      "id": "tip_edge",
+      "from": [
+        0.36,
+        0.95
+      ],
+      "to": [
+        0.67,
+        0.98
+      ],
+      "label": "Tip edge",
+      "color": "#ffffff"
+    },
+    {
+      "type": "arrow",
+      "id": "push",
+      "from": [
+        0.22,
+        0.08
+      ],
+      "to": [
+        0.38,
+        0.08
+      ],
+      "label": "Push to tip",
+      "quantity": "tip_force",
+      "color": "#ffcc00"
+    },
+    {
+      "type": "panel",
+      "id": "statics_math",
+      "at": [
+        0.7,
+        0.05
+      ],
+      "label": "Why it stays up",
+      "text": "The weight goes down the pole and is shared by three feet.\nIt only falls if the center of mass moves past the line between two feet.",
+      "content": "physics"
+    }
+  ]
+}

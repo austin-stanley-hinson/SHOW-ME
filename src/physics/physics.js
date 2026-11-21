@@ -30,6 +30,40 @@ const MODELS = {
       ];
     },
   },
+
+  // Object on a three-legged stand. Weakest tipping direction is the edge between two feet,
+  // which is leg_radius / 2 from the pole (feet 120° apart).
+  tripod_stand: {
+    inputs: ['mass_kg', 'stand_mass_kg', 'leg_radius_m', 'com_height_m', 'push_height_m'],
+    compute({ mass_kg, stand_mass_kg, leg_radius_m, com_height_m, push_height_m }) {
+      const weight = round3((mass_kg + stand_mass_kg) * G);
+      const tip_margin_m = round3(leg_radius_m / 2);
+      const tip_moment = round3(weight * tip_margin_m);
+      return {
+        weight: { value: weight, unit: 'N', name: 'Weight' },
+        leg_load: { value: round3(weight / 3), unit: 'N', name: 'Load per leg' },
+        tip_margin_m: { value: tip_margin_m, unit: 'm', name: 'Tip margin' },
+        tip_moment: { value: tip_moment, unit: 'N·m', name: 'Moment to tip' },
+        tip_force: { value: round3(tip_moment / push_height_m), unit: 'N', name: 'Push to tip' },
+        tip_angle_deg: {
+          value: round3((Math.atan(tip_margin_m / com_height_m) * 180) / Math.PI),
+          unit: '°',
+          name: 'Lean limit',
+        },
+      };
+    },
+    lines(i, q) {
+      const total = round3(i.mass_kg + i.stand_mass_kg);
+      return [
+        `Mass ≈ ${fmt(i.mass_kg)} + ${fmt(i.stand_mass_kg)} = ${fmt(total)} kg (est.) → W = ${fmt(total)} × 9.81 = ${fmt(q.weight.value)} N`,
+        `Each leg: ${fmt(q.weight.value)} / 3 = ${fmt(q.leg_load.value)} N`,
+        `Tip edge: e = ${fmt(i.leg_radius_m)} / 2 = ${fmt(q.tip_margin_m.value)} m from the pole`,
+        `To tip it: M = ${fmt(q.weight.value)} × ${fmt(q.tip_margin_m.value)} = ${fmt(q.tip_moment.value)} N·m`,
+        `Push at the top: F = ${fmt(q.tip_moment.value)} / ${fmt(i.push_height_m)} = ${fmt(q.tip_force.value)} N`,
+        `Lean limit: tan θ = ${fmt(q.tip_margin_m.value)} / ${fmt(i.com_height_m)} → θ = ${fmt(q.tip_angle_deg.value)}°`,
+      ];
+    },
+  },
 };
 
 const INPUT_INFO = {
@@ -37,6 +71,10 @@ const INPUT_INFO = {
   lever_arm_m: { unit: 'm', name: 'Lever arm' },
   bolt_spacing_m: { unit: 'm', name: 'Bolt spacing' },
   bolt_count: { unit: '', name: 'Bolts' },
+  stand_mass_kg: { unit: 'kg', name: 'Stand mass' },
+  leg_radius_m: { unit: 'm', name: 'Leg spread' },
+  com_height_m: { unit: 'm', name: 'Center of mass height' },
+  push_height_m: { unit: 'm', name: 'Push height' },
 };
 
 // 3 significant figures, no trailing zeros: 49.05 -> "49.1", 4.905 -> "4.91", 0.1 -> "0.1", 5 -> "5".
@@ -73,6 +111,6 @@ export function formatLabel(label, quantityKey, result) {
   const q = quantityKey && result?.ok ? result.quantities[quantityKey] : null;
   if (!q) return label || '';
   const name = label || q.name;
-  const unit = q.unit ? ` ${q.unit}` : '';
+  const unit = !q.unit ? '' : q.unit === '°' ? '°' : ` ${q.unit}`;
   return q.estimated ? `${name} ≈ ${fmt(q.value)}${unit} (est.)` : `${name} = ${fmt(q.value)}${unit}`;
 }

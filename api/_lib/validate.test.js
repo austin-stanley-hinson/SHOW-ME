@@ -39,3 +39,10 @@ test('drops bad items, dedupes ids, clamps coords, caps at 12', () => {
   assert.equal(r.value.draw.length, 12);
   assert.ok(!r.value.draw.some((i) => ['b', 'c', 'd'].includes(i.id)));
 });
+
+test('contract example 1b (tripod) is valid and unchanged', () => {
+  const tripod = JSON.parse(readFileSync(new URL('../fixtures/tripod.json', import.meta.url)));
+  const r = validateResponse(tripod);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.draw.length, tripod.draw.length);
+});
