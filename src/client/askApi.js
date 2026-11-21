@@ -17,7 +17,8 @@ const MAX_SIDE = 768; // px; smaller upload for venue Wi-Fi (issue #11). TODO: c
 
 // canvas: an HTMLCanvasElement holding exactly what the user sees (same crop as the screen).
 // previous (optional): { question, response } from the last successful ask.
-export async function ask(canvas, question, previous = null) {
+// audio (optional): a Blob from MediaRecorder (iOS Safari records audio/mp4). Then question may be ''.
+export async function ask(canvas, question, previous = null, audio = null) {
   if (USE_FIXTURE) return { ok: true, data: speakerFixture };
 
   let res;
@@ -26,7 +27,12 @@ export async function ask(canvas, question, previous = null) {
       signal: AbortSignal.timeout(TIMEOUT_MS),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: toJpegBase64(canvas), question, ...(previous && { previous }) }),
+      body: JSON.stringify({
+        image: toJpegBase64(canvas),
+        question: question || '',
+        ...(previous && { previous }),
+        ...(audio && { audio: await blobToBase64(audio), audio_mime: audio.type || 'audio/mp4' }),
+      }),
     });
   } catch (e) {
     return { ok: false, error: e.name === 'TimeoutError' ? 'timed out' : 'network error' };
@@ -54,4 +60,11 @@ function toJpegBase64(canvas) {
     src.getContext('2d').drawImage(canvas, 0, 0, src.width, src.height);
   }
   return src.toDataURL('image/jpeg', 0.7).split(',')[1];
+}
+
+async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }

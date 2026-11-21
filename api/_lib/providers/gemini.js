@@ -24,7 +24,7 @@ const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/$
 export const name = 'gemini';
 export const coords = 'yx1000'; // Gemini's native point format; converted to [x, y] 0-1 in model.js
 
-export async function generate({ systemPrompt, imageBase64, mimeType, question, previous, signal }) {
+export async function generate({ systemPrompt, imageBase64, mimeType, question, audio, previous, signal }) {
   const key = process.env.GEMINI_API_KEY;
   const meta = { provider: name, attempts: [], model: null, usage: null };
   if (!key) return { ok: false, error: 'GEMINI_API_KEY is not set', status: 500, meta };
@@ -39,7 +39,17 @@ export async function generate({ systemPrompt, imageBase64, mimeType, question, 
 
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [...history, { role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: question }] }],
+    contents: [
+      ...history,
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType, data: imageBase64 } },
+          ...(audio ? [{ inlineData: { mimeType: audio.mimeType, data: audio.data } }] : []),
+          { text: question || 'The question is in the audio clip. Put what you heard in "heard".' },
+        ],
+      },
+    ],
     generationConfig: {
       responseMimeType: 'application/json',
       // No responseSchema: with it, gemini-3.6-flash wrote runaway numbers ("3.5000000000000004000…")

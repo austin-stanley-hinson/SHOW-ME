@@ -140,6 +140,7 @@ export function validateResponse(data, options = {}) {
       // Gemini sometimes garbles the very first string it writes (" me stand is…"), so the prompt puts a
       // throwaway-safe title first. Clean it: drop a leading lowercase fragment, keep it short.
       title: cleanTitle(data.title),
+      heard: typeof data.heard === 'string' && data.heard.trim() ? data.heard.trim().slice(0, 300) : null,
       answer: data.answer.trim(),
       followup_question: data.followup_question,
       points: points.list,

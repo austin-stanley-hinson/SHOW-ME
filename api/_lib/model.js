@@ -12,7 +12,8 @@ import * as gemini from './providers/gemini.js';
 const PROVIDERS = { gemini };
 const TIMEOUT_MS = Number(process.env.MODEL_TIMEOUT_MS || process.env.GEMINI_TIMEOUT_MS) || 55_000;
 
-export async function askModel(imageBase64, question, previous = null, mimeType = 'image/jpeg') {
+// audio (optional): { data: base64, mimeType } - the spoken question; the model transcribes it into "heard".
+export async function askModel(imageBase64, question, previous = null, mimeType = 'image/jpeg', audio = null) {
   const provider = PROVIDERS[process.env.MODEL_PROVIDER || 'gemini'];
   if (!provider) return { ok: false, error: `unknown MODEL_PROVIDER "${process.env.MODEL_PROVIDER}"`, status: 500 };
 
@@ -27,6 +28,7 @@ export async function askModel(imageBase64, question, previous = null, mimeType 
     imageBase64,
     mimeType,
     question,
+    audio,
     previous: prev,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
