@@ -1,4 +1,4 @@
-# Response Contract (v2)
+# Response Contract (v2.1)
 
 This is the one JSON shape that **Gemini must return** and that **the renderer must accept**.
 If you change it, change it here first, in its own PR, and get the other person's OK before merging.
@@ -37,6 +37,23 @@ All positions are **normalized image coordinates**: `[x, y]`, each a number from
 - `x` goes right, `y` goes **down**
 
 Example: `[0.5, 0.5]` is the center of the image.
+
+**Which image:** the frame sent to Gemini must be exactly what the user sees on screen
+(same crop). If the video is shown with `object-fit: cover`, crop the frame the same way
+before sending, or the overlay will be shifted.
+
+**Anchors (what `at` means):**
+
+| Type | `at` is the... |
+|---|---|
+| `point`, `step` | center of the dot / marker |
+| `label` | center of the text |
+| `panel` | top-left corner of the box (so it doesn't spill off-screen) |
+
+**From 2D to 3D:** when the frame is captured, the renderer saves the camera's
+orientation and field of view. Each `[x, y]` becomes a ray from the camera through that
+pixel, and the item is placed where the ray hits an invisible plane ~1.5 m in front of
+the capture-time camera. Items then stay fixed in the world as the phone turns.
 
 ## Physics
 
@@ -130,6 +147,8 @@ The renderer formats `label` + value from `physics.js`:
 - Every number shown on screen comes from `physics.js`. Never parse numbers out of Gemini's text.
 - Estimated inputs are always marked `≈ … (est.)`, and the assumptions are always visible when physics is shown.
 - Draw `step` items in order of `n`, and also list the step instructions in the caption area so they're readable without looking at the markers.
+- Draw text onto a canvas texture (not a three.js font file) so symbols like `≈ × · ✓ –` render instead of showing as empty boxes.
+- If the server returns an error, show a caption like "Sorry, I couldn't figure that out. Try again." and draw nothing.
 
 ## Server rules (Gemini side)
 
@@ -154,6 +173,8 @@ User looks at a wall speaker from the side (wall on the left) and asks: *"Why is
     ]
   },
   "draw": [
+    { "type": "point", "id": "bolt_top", "at": [0.25, 0.40], "label": "Top bolt", "color": "#0a84ff" },
+    { "type": "point", "id": "bolt_bottom", "at": [0.25, 0.60], "label": "Bottom bolt", "color": "#0a84ff" },
     { "type": "point", "id": "center_of_mass", "at": [0.62, 0.50], "label": "Center of mass", "color": "#ffffff" },
     { "type": "arrow", "id": "weight", "from": [0.62, 0.50], "to": [0.62, 0.78], "label": "W", "quantity": "weight", "color": "#ff3b30" },
     { "type": "arrow", "id": "bolt_shear", "from": [0.30, 0.62], "to": [0.30, 0.42], "label": "Shear per bolt", "quantity": "shear_per_bolt", "color": "#0a84ff" },
