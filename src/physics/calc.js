@@ -122,8 +122,23 @@ export function show(ast, scope, parentPrec = 0, rightSide = false) {
 
 const unitText = (u) => (!u ? '' : u === '°' ? '°' : ` ${u}`);
 
+// ---------- measurements ----------
+// points3d: { [pointId]: [x, y, z] } in meters, WebXR convention (y is UP), from the phone's depth/hit-test.
+// measure: { kind: 'distance' | 'horizontal' | 'vertical', from: pointId, to: pointId }
+export function measure(m, points3d) {
+  const a = points3d?.[m?.from], b = points3d?.[m?.to];
+  const ok = (p) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);
+  if (!ok(a) || !ok(b)) return null;
+  const [dx, dy, dz] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  if (m.kind === 'distance') return Math.hypot(dx, dy, dz);
+  if (m.kind === 'horizontal') return Math.hypot(dx, dz);
+  if (m.kind === 'vertical') return Math.abs(dy);
+  return null;
+}
+
 // ---------- the sheet ----------
-export function evaluateCalc(calc) {
+// points3d (optional): measured 3D points; inputs with a "measure" use them, else fall back to "value".
+export function evaluateCalc(calc, points3d = null) {
   const assumptions = Array.isArray(calc?.assumptions) ? calc.assumptions.filter((a) => typeof a === 'string') : [];
   const errors = [];
   const quantities = {};
@@ -132,19 +147,22 @@ export function evaluateCalc(calc) {
   const taken = (n) => Object.hasOwn(scope, n) || Object.hasOwn(FUNCTIONS, n);
 
   for (const inp of Array.isArray(calc?.inputs) ? calc.inputs : []) {
-    const { name, value, unit = '', label } = inp || {};
+    const { name, unit = '', label } = inp || {};
     if (typeof name !== 'string' || !NAME.test(name) || taken(name)) {
       errors.push(`bad or duplicate input name "${name}"`);
       continue;
     }
+    const measured = inp.measure ? measure(inp.measure, points3d) : null;
+    const value = measured ?? inp.value;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       errors.push(`input "${name}" is not a number`);
       continue;
     }
     scope[name] = round3(value);
-    const est = inp.est !== false;
-    quantities[name] = { value: scope[name], unit, name: label || name, estimated: est };
-    lines.push(`${label || name}: ${name} ${est ? '≈' : '='} ${fmt(value)}${unitText(unit)}${est ? ' (est.)' : ''}`);
+    const est = measured === null && inp.est !== false;
+    quantities[name] = { value: scope[name], unit, name: label || name, estimated: est, measured: measured !== null };
+    const tag = measured !== null ? ' (measured)' : est ? ' (est.)' : '';
+    lines.push(`${label || name}: ${name} ${est ? '≈' : '='} ${fmt(value)}${unitText(unit)}${tag}`);
   }
 
   const steps = Array.isArray(calc?.steps) ? calc.steps.slice(0, MAX_STEPS) : [];
@@ -195,5 +213,6 @@ export function formatLabel(label, quantityKey, result) {
   if (!q) return label || '';
   const name = label || q.name;
   const unit = unitText(q.unit);
-  return q.estimated ? `${name} ≈ ${fmt(q.value)}${unit} (est.)` : `${name} = ${fmt(q.value)}${unit}`;
+  if (q.estimated) return `${name} ≈ ${fmt(q.value)}${unit} (est.)`;
+  return `${name} = ${fmt(q.value)}${unit}${q.measured ? ' (measured)' : ''}`;
 }

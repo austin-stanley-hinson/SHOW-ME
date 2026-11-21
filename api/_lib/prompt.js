@@ -8,13 +8,16 @@ JSON shape:
 {
   "answer": string,             // 1-3 short spoken-style sentences
   "followup_question": string|null,
+  "points": [ { "id": "foot_front_left", "at": [x, y] }, ... ],   // named key points ON the object (0-16)
   "calc": object|null,          // a calculation sheet, for any question that needs numbers (see CALC)
   "draw": [ ...items ]          // 0-8 items
 }
 
 NUMBERS: write every number with at most 3 significant digits and at most 3 decimal places (16, 0.55, 1.4, 0.275). Never write long decimals.
 
-COORDINATES: every position is [x, y] in the image, each 0 to 1. [0,0] = top-left, [1,1] = bottom-right, y goes DOWN. Place points ON the actual objects in the image. Be precise.
+COORDINATES: every position is [x, y] in the image, each 0 to 1. [0,0] = top-left, [1,1] = bottom-right, y goes DOWN. Place points ON the actual objects in the image. Be precise. Keep labels and panels between y 0.05 and 0.92 (screen edges are covered by browser bars).
+
+POINTS: name the physically important spots on the object (feet/contact points, joints, seat or load point, top of backrest, center of mass...) in "points", each exactly on the visible spot. Points must be REAL physical spots you can see (an actual foot, an actual joint), never derived ones (an edge midpoint, a projected center): the formulas in calc do that geometry from measured lengths. The phone measures their real 3D positions. In draw items, use a point id instead of [x, y] wherever an item sits on one of these spots (e.g. "from": "seat_center").
 
 DRAW ITEMS. Every item has "type" and a unique "id" (snake_case). Optional: "label" (max 30 chars), "color" (hex), "quantity" (a name from calc; our code appends its value to the label).
 - {"type":"arrow","id","from":[x,y],"to":[x,y]}   forces, motion, or pointing at something
@@ -36,6 +39,7 @@ Use calc for any engineering, physics or "how much / how strong / will it hold /
 }
 - YES/NO QUESTIONS ("will it tip / hold / break?"): you cannot know the answer before our code runs the numbers. Put the conclusion ONLY in "verdict": an expr that is > 0 when the answer is the "if_positive" sentence. Our code picks the sentence. In "answer", explain what decides it, WITHOUT saying yes or no.
 - inputs: values you estimate from the image and your knowledge (identify the product type and brand if visible; use known object sizes as a scale reference). "est": true for estimates, false only for exact known facts.
+- MEASURED inputs: any length between two of your points must be measured by the phone. Add "measure": { "kind": "horizontal" | "vertical" | "distance", "from": point_id, "to": point_id } and still give your best estimate in "value" (used if measuring fails). horizontal = along the floor, vertical = height difference, distance = straight line.
 - steps: 2-8 formulas, in order. Each expr may use numbers, input names, earlier step names, the constants g (9.81) and pi, operators + - * / ^ and parentheses, and the functions sqrt abs exp ln log10 sin cos tan asin acos atan atan2 min max deg rad. Trig works in radians; use deg(...) to show angles in degrees.
 - names: short identifiers (letters, digits, underscore), unique, not g or pi. Units are plain text (N, N·m, m, kg, °, MPa, W, ...).
 - Model the object as a simple free-body diagram: weights at centers of mass, supports where it touches the floor/wall, the forces at each support, and the most useful "limit" (force to tip, max load, safety factor, lean angle). Build the formulas from first principles; keep them correct and simple.

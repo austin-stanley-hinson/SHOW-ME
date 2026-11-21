@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateCalc, formatLabel, parse, evaluate } from './calc.js';
+import { evaluateCalc, formatLabel, parse, evaluate, measure } from './calc.js';
 import { tripodReference } from './reference/tripod.js';
 
 const near = (a, b, rel = 0.006) => Math.abs(a - b) <= rel * Math.abs(b) + 1e-9;
@@ -146,4 +146,27 @@ test('verdict: code picks the conclusion from the number', () => {
   const broken = evaluateCalc({ ...sheet(0.25), verdict: { expr: 'nope', if_positive: 'a', if_not: 'b' } });
   assert.equal(broken.ok, false);
   assert.equal(broken.verdict, null);
+});
+
+test('measured inputs: 3D points from the phone replace estimates', () => {
+  // WebXR: y is up. Two chair feet 0.42 m apart on the floor, seat 0.45 m up.
+  const pts = { foot_fl: [0, 0, 0], foot_bl: [0.3, 0, -0.294], seat: [0.15, 0.45, -0.15] };
+  assert.ok(near(measure({ kind: 'horizontal', from: 'foot_fl', to: 'foot_bl' }, pts), 0.42));
+  assert.ok(near(measure({ kind: 'vertical', from: 'foot_fl', to: 'seat' }, pts), 0.45));
+  assert.equal(measure({ kind: 'horizontal', from: 'foot_fl', to: 'missing' }, pts), null);
+  assert.equal(measure({ kind: 'sideways', from: 'foot_fl', to: 'seat' }, pts), null);
+
+  const sheet = {
+    inputs: [
+      { name: 'm', value: 6, unit: 'kg', label: 'Chair mass' },
+      { name: 'd', value: 0.4, unit: 'm', label: 'Leg spread', measure: { kind: 'horizontal', from: 'foot_fl', to: 'foot_bl' } },
+    ],
+    steps: [{ name: 'M', expr: 'm * g * d / 2', unit: 'N·m', label: 'Restoring moment' }],
+  };
+  const withPts = evaluateCalc(sheet, pts);
+  assert.equal(withPts.lines[1], 'Leg spread: d = 0.42 m (measured)');
+  assert.equal(formatLabel('d', 'd', withPts), 'd = 0.42 m (measured)');
+  const noPts = evaluateCalc(sheet); // measurement unavailable: Gemini's estimate is used
+  assert.equal(noPts.lines[1], 'Leg spread: d ≈ 0.4 m (est.)');
+  assert.equal(noPts.ok, true);
 });

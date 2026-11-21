@@ -46,3 +46,26 @@ test('contract example 1b (tripod) is valid and unchanged', () => {
   assert.equal(r.ok, true);
   assert.equal(r.value.draw.length, tripod.draw.length);
 });
+
+test('points: draw items can reference named points; refs kept for 3D', () => {
+  const r = validateResponse({
+    answer: 'hi',
+    points: [
+      { id: 'seat', at: [0.5, 0.55] },
+      { id: 'seat', at: [0.1, 0.1] }, // repeated: dropped
+      { id: 'bad id!', at: [0.1, 0.1] },
+      { id: 'foot', at: [0.4, 1.3] }, // clamped
+    ],
+    draw: [
+      { type: 'arrow', id: 'w', from: 'seat', to: [0.5, 0.8] },
+      { type: 'arrow', id: 'x', from: 'nope', to: [0.5, 0.8] }, // unknown point: dropped
+      { type: 'point', id: 'f', at: 'foot' },
+    ],
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.value.points, [{ id: 'seat', at: [0.5, 0.55] }, { id: 'foot', at: [0.4, 1] }]);
+  assert.deepEqual(r.value.draw.map((i) => i.id), ['w', 'f']);
+  assert.deepEqual(r.value.draw[0].from, [0.5, 0.55]);
+  assert.deepEqual(r.value.draw[0].refs, { from: 'seat' });
+  assert.deepEqual(r.value.draw[1].at, [0.4, 1]);
+});
