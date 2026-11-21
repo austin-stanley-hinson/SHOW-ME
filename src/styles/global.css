@@ -63,3 +63,64 @@ body,
 .big-button:disabled {
   opacity: 0.5;
 }
+
+.start-note {
+  max-width: 320px;
+  font-size: 0.95rem !important;
+}
+
+/* Camera screen: video fills the screen with object-fit: cover.
+   captureFrame.js applies the same centered crop. Keep them in sync. */
+.camera-screen {
+  position: fixed;
+  inset: 0;
+  background: #000;
+}
+
+.camera-video,
+.frozen-frame,
+.frozen-frame canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.camera-video {
+  object-fit: cover;
+}
+
+/* The captured canvas already has the screen's aspect ratio, so it fills exactly. */
+.frozen-frame canvas {
+  display: block;
+}
+
+.frozen-frame[hidden] {
+  display: none;
+}
+
+.bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px max(16px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
+}
+
+/* Captions: high contrast on a solid backing, readable over any camera image. */
+.caption {
+  margin: 0;
+  max-width: 600px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--fg);
+  font-size: 1.125rem;
+  line-height: 1.4;
+  text-align: center;
+}
