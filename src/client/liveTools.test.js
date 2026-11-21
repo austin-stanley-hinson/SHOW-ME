@@ -79,3 +79,11 @@ test('clear: true drops old named points too (no ghost points re-snapped forever
   t.handle({ name: 'show', args: { items: [{ type: 'arrow', id: 'a', from: [100, 100], to_point: 'lid', label: 'lid' }] } });
   assert.deepEqual(t.scene.items.map((i) => i.id), ['keys', 'a']);
 });
+
+test('an arrow given only "at" points at that spot', () => {
+  const t = createLiveTools();
+  const r = t.handle({ name: 'show', args: { items: [{ type: 'arrow', id: 'sauce', at: [130, 470], label: 'sauce packet' }] } });
+  assert.deepEqual(r.response.shown, ['sauce']);
+  assert.deepEqual(t.scene.items[0].to, [0.47, 0.13]);
+  assert.equal(t.scene.items[0].at, undefined);
+});

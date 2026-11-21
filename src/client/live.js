@@ -82,7 +82,12 @@ export async function startLive(opts) {
   // Re-finding: optical flow can't recover after a fast swing or when the object leaves the view, so
   // every few seconds the precise model re-locates each labelled thing on the newest frame. Things it
   // can't find are hidden instead of left on the wrong spot; they come back when they're in view again.
-  const RESNAP_MS = 2500;
+  const RESNAP_MS = 2500; // while the phone is still
+  const RESNAP_MOVING_MS = 1200; // while it's moving: correct drift sooner
+  // Per tracked frame at 320 px wide. 4-level flow is accurate up to ~28 px/frame; beyond that it fails AND
+  // under-reports (a 40 px pan reads ~29), so 26 catches real swings while normal pans (19-23 px) stay visible.
+  const BIG_MOTION_PX = 26;
+  let lastResnap = 0;
   const snapTargets = new Map(); // id -> label
   const hidden = new Set(); // ids not visible right now (or unsure after a big motion)
   const pending = new Map(); // id -> timeout: waiting for the precise snap, not drawn yet
@@ -310,10 +315,18 @@ export async function startLive(opts) {
       resnapBusy = false;
     }
   }
-  const resnapTimer = setInterval(resnap, RESNAP_MS);
+  let movingUntil = 0;
+  const resnapTimer = setInterval(() => {
+    const every = Date.now() < movingUntil ? RESNAP_MOVING_MS : RESNAP_MS;
+    if (Date.now() - lastResnap >= every) {
+      lastResnap = Date.now();
+      resnap();
+    }
+  }, 200);
   const motionTimer = setInterval(() => {
     const m = st.tracker.motion;
-    if (m > 18) {
+    if (m > 4 && m < Infinity) movingUntil = Date.now() + 800;
+    if (m > BIG_MOTION_PX) {
       // Fast swing: flow is unreliable. Hide everything until it's re-found.
       if (!calmSince) log.event('big-motion', Math.round(m));
       for (const id of snapTargets.keys()) hidden.add(id);

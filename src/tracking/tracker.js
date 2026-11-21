@@ -15,7 +15,7 @@
 const MAX_FEATURES = 60;
 const GRID = [8, 6];
 const WIN = 7; // half window -> 15x15
-const LEVELS = 3;
+const LEVELS = 4; // 4 pyramid levels: follows ~2x faster motion between frames than 3
 const ITERS = 8;
 const RING = 90; // frames of history (~6 s at 15 fps)
 

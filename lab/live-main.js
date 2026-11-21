@@ -15,6 +15,33 @@ let heardDone = true;
 const gestures = new Map(); // target id -> { type, start, until }
 
 // Contract [x, y] 0-1 of the full video frame -> canvas pixels (video uses object-fit: contain).
+// Display smoothing: each frame, move every drawn position part of the way to its new target, so snaps
+// and tracker corrections glide instead of jump (and small jitter is filtered out).
+const shown = new Map(); // key -> [x, y]
+function ease(key, p) {
+  if (!Array.isArray(p)) return p;
+  const prev = shown.get(key);
+  const far = prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) > 0.35; // teleport on huge jumps
+  const next = !prev || far ? p : [prev[0] + (p[0] - prev[0]) * 0.35, prev[1] + (p[1] - prev[1]) * 0.35];
+  shown.set(key, next);
+  return next;
+}
+function smooth(s) {
+  const live = new Set();
+  const points = s.points.map((p) => (live.add('p:' + p.id), { ...p, at: ease('p:' + p.id, p.at) }));
+  const items = s.items.map((it) => {
+    const out = { ...it };
+    for (const f of ['at', 'from', 'to']) {
+      if (!Array.isArray(it[f])) continue;
+      live.add(it.id + '.' + f);
+      out[f] = it.hidden ? it[f] : ease(it.id + '.' + f, it[f]);
+    }
+    return out;
+  });
+  for (const k of shown.keys()) if (!live.has(k)) shown.delete(k);
+  return { ...s, items, points };
+}
+
 function frameRect() {
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
@@ -79,7 +106,7 @@ function draw(now) {
   const r = frameRect();
   // Positions follow the real spots as the phone moves (tracker inside live.js).
   if (live) {
-    scene = live.trackedScene();
+    scene = smooth(live.trackedScene());
     $('status').dataset.track = scene.tracking.lost ? ' · tracking lost' : '';
   }
 

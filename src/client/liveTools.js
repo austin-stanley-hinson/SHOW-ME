@@ -24,6 +24,13 @@ const NEEDS = { arrow: ['from', 'to'], line: ['from', 'to'], point: ['at'], circ
 function withPointRefs(item, pointIds) {
   const out = { ...item };
   // An arrow with only a tip ("point at the keys"): add a tail up-left of it instead of rejecting it.
+  // An arrow given a single position ("at") means "point at this spot".
+  if (out.type === 'arrow' && out.to === undefined && out.to_point === undefined) {
+    if (Array.isArray(out.at)) out.to = out.at;
+    else if (typeof out.at_point === 'string') out.to_point = out.at_point;
+    delete out.at;
+    delete out.at_point;
+  }
   if (out.type === 'arrow' && out.from === undefined && out.from_point === undefined) {
     const tip = Array.isArray(out.to) ? out.to : null; // [y, x] 0-1000
     if (tip) out.from = [Math.max(0, tip[0] - 120), Math.max(0, tip[1] - 120)];
