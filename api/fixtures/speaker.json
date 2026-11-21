@@ -1,0 +1,136 @@
+{
+  "answer": "That's a bookshelf speaker on a wall bracket, about 5 kg. Two bolts hold its weight, and because it sticks out from the wall, the top bolt is pulled while the bottom of the bracket presses into the wall.",
+  "followup_question": "Do you know what kind of wall it is: drywall, wood stud, or brick?",
+  "physics": {
+    "model": "wall_mount",
+    "inputs": {
+      "mass_kg": 5,
+      "lever_arm_m": 0.1,
+      "bolt_spacing_m": 0.08,
+      "bolt_count": 2
+    },
+    "assumptions": [
+      "Bookshelf speakers this size are usually 4–6 kg",
+      "Center of mass is near the middle of the box",
+      "Two bolts, one above the other, about 8 cm apart"
+    ]
+  },
+  "draw": [
+    {
+      "type": "point",
+      "id": "bolt_top",
+      "at": [
+        0.25,
+        0.4
+      ],
+      "label": "Top bolt",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "point",
+      "id": "bolt_bottom",
+      "at": [
+        0.25,
+        0.6
+      ],
+      "label": "Bottom bolt",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "point",
+      "id": "center_of_mass",
+      "at": [
+        0.62,
+        0.5
+      ],
+      "label": "Center of mass",
+      "color": "#ffffff"
+    },
+    {
+      "type": "arrow",
+      "id": "weight",
+      "from": [
+        0.62,
+        0.5
+      ],
+      "to": [
+        0.62,
+        0.78
+      ],
+      "label": "W",
+      "quantity": "weight",
+      "color": "#ff3b30"
+    },
+    {
+      "type": "arrow",
+      "id": "bolt_shear",
+      "from": [
+        0.3,
+        0.62
+      ],
+      "to": [
+        0.3,
+        0.42
+      ],
+      "label": "Shear per bolt",
+      "quantity": "shear_per_bolt",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "arrow",
+      "id": "bolt_top_tension",
+      "from": [
+        0.38,
+        0.4
+      ],
+      "to": [
+        0.24,
+        0.4
+      ],
+      "label": "Top bolt pull",
+      "quantity": "top_bolt_tension",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "arrow",
+      "id": "wall_reaction",
+      "from": [
+        0.24,
+        0.6
+      ],
+      "to": [
+        0.38,
+        0.6
+      ],
+      "label": "Wall push",
+      "quantity": "wall_reaction",
+      "color": "#34c759"
+    },
+    {
+      "type": "line",
+      "id": "lever_arm",
+      "from": [
+        0.26,
+        0.5
+      ],
+      "to": [
+        0.62,
+        0.5
+      ],
+      "label": "d",
+      "quantity": "lever_arm_m",
+      "color": "#ffffff"
+    },
+    {
+      "type": "panel",
+      "id": "statics_math",
+      "at": [
+        0.7,
+        0.15
+      ],
+      "label": "Why it stays up",
+      "text": "The bolts carry the weight straight up.\nBecause the speaker sticks out, it tries to rotate down; the top bolt pulls and the wall pushes back to stop that.",
+      "content": "physics"
+    }
+  ]
+}
