@@ -123,3 +123,20 @@ test('coverRect: portrait camera on a phone screen is cropped at the sides, cent
   assert.equal(r.y, 0);
   assert.deepEqual(coverRect(0, 0, 390, 844), { x: 0, y: 0, w: 390, h: 844 });
 });
+
+test('v3.1: rotate items normalized, hidden items dropped', () => {
+  const s = buildScene({
+    draw: [
+      { type: 'rotate', id: 'r1', at: [0.5, 0.5], dir: 'ccw', label: 'Twist' },
+      { type: 'rotate', id: 'r2', at: [0.2, 0.2], r: 5, dir: 'sideways' },
+      { type: 'circle', id: 'c1', at: [0.3, 0.3], hidden: true },
+    ],
+  });
+  assert.deepEqual(
+    s.items.map((i) => [i.id, i.r, i.dir]),
+    [
+      ['r1', 0.06, 'ccw'],
+      ['r2', 0.3, 'cw'],
+    ],
+  );
+});

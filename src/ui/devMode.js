@@ -51,7 +51,7 @@ export function placeholderFrame(w, h) {
 // Lets the live UI be tested and screenshotted without a Gemini Live connection.
 export const fakeLive = params.get('fakelive') === '1';
 
-export function fakeStartLive(h) {
+export function fakeStartLive({ pushToTalk = false, ...h }) {
   const chairV = validateResponse(structuredClone(chair)).value;
   const foldV = validateResponse(structuredClone(fold)).value;
   let scene = { items: [], points: [] };
@@ -76,6 +76,18 @@ export function fakeStartLive(h) {
   speak(1700, 'Its weight holds it down around the rear feet. A push of about eight newtons at the top tips it.');
   at(2200, () => h.onGesture?.({ type: 'trace', target: chairV.draw.find((i) => i.type === 'arrow')?.id }));
   at(3600, () => h.onGesture?.({ type: 'pulse', target: chairV.draw.find((i) => i.type === 'circle')?.id }));
+  at(4600, () => {
+    // v3.1 extras: a twisting arrow, the "point" gesture, and an item the tracker can't see (hidden).
+    scene = {
+      ...scene,
+      items: [
+        ...scene.items,
+        { type: 'rotate', id: 'knob', at: [0.72, 0.3], r: 0.07, dir: 'ccw', label: 'Loosen' },
+        { type: 'label', id: 'gone', at: [0.5, 0.5], label: 'SHOULD NOT SHOW', hidden: true },
+      ],
+    };
+    h.onGesture?.({ type: 'point', target: 'knob' });
+  });
   if (params.get('fakestep') === '1') {
     at(6000, () => h.onHeard?.('Now how do I fold it?'));
     at(6400, () => {
@@ -96,6 +108,12 @@ export function fakeStartLive(h) {
             speak(300, `(simulated) You said: ${text}`);
           },
           mute: () => {},
+          pushToTalk,
+          talkStart: () => h.onStatus?.('listening'),
+          talkEnd: () => {
+            h.onHeard?.('(simulated) your spoken question');
+            speak(400, '(simulated) Here is my answer.');
+          },
           get scene() {
             return scene;
           },

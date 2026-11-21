@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { drawScene } from './drawScene.js';
 import { buildScene } from './scene.js';
 import { coverRect } from './coverRect.js';
+import { createSmoother } from './smooth.js';
 
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
@@ -19,6 +20,7 @@ export default function LiveAnnotationLayer({ live, store, video, hidden, bottom
     const ctx = canvas.getContext('2d');
     let raf = 0;
     let lastLost = null;
+    const smooth = createSmoother(); // snaps and tracker corrections glide instead of jump
 
     function frame(now) {
       raf = requestAnimationFrame(frame);
@@ -35,7 +37,7 @@ export default function LiveAnnotationLayer({ live, store, video, hidden, bottom
         ctx.clearRect(0, 0, w, h);
         return;
       }
-      const tracked = live.trackedScene();
+      const tracked = smooth(live.trackedScene());
       const lost = Boolean(tracked.tracking?.lost);
       if (lost !== lastLost) {
         lastLost = lost;

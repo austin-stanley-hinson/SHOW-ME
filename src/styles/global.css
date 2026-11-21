@@ -471,3 +471,41 @@ mark.unchecked {
 .mic-button {
   flex: none;
 }
+
+.live-status.ready .dot {
+  background: #30d158;
+}
+
+/* Live mode leaves more of the screen for the drawings. */
+.live-bar .caption-area {
+  max-height: 22vh;
+}
+
+.talk-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.keyboard-button {
+  flex: none;
+  min-width: 72px;
+}
+
+/* Hold-to-talk: press and hold, so no text selection or iOS callout menu on long press. */
+.talk-button {
+  flex: 1;
+  min-height: 64px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.talk-button.talking {
+  background: #30d158;
+  color: #000;
+  outline: 4px solid #fff;
+  outline-offset: 2px;
+}

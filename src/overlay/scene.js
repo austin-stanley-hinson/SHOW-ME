@@ -15,6 +15,7 @@ const REQUIRED_POINTS = {
   line: ['from', 'to'],
   point: ['at'],
   circle: ['at'],
+  rotate: ['at'],
   label: ['at'],
   step: ['at'],
   panel: ['at'],
@@ -25,6 +26,7 @@ const DEFAULT_COLOR = {
   line: '#ffffff',
   point: '#ffffff',
   circle: '#ffcc00',
+  rotate: '#ffcc00',
   label: '#ffffff',
   step: '#ffcc00',
   panel: '#ffffff',
@@ -37,6 +39,7 @@ const str = (s, max) => (typeof s === 'string' ? s.trim().slice(0, max) : '');
 
 function normalizeItem(raw, calc) {
   if (!raw || typeof raw !== 'object') return null;
+  if (raw.hidden) return null; // live mode: not in view / not re-found yet (CONTRACT v3.1)
   const fields = REQUIRED_POINTS[raw.type];
   if (!fields || typeof raw.id !== 'string' || !raw.id) return null;
   if (!fields.every((f) => isXY(raw[f]))) return null;
@@ -60,6 +63,11 @@ function normalizeItem(raw, calc) {
   if (raw.type === 'circle') {
     const r = typeof raw.r === 'number' && Number.isFinite(raw.r) ? raw.r : 0.05;
     item.r = Math.min(0.3, Math.max(0.01, r)); // fraction of image width
+  }
+  if (raw.type === 'rotate') {
+    const r = typeof raw.r === 'number' && Number.isFinite(raw.r) ? raw.r : 0.06;
+    item.r = Math.min(0.3, Math.max(0.01, r));
+    item.dir = raw.dir === 'ccw' ? 'ccw' : 'cw';
   }
   if (raw.type === 'panel') {
     const isCalc = raw.content === 'calc';

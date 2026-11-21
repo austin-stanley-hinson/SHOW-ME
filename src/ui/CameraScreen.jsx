@@ -127,7 +127,8 @@ export default function CameraScreen({ stream, orientation }) {
   function goLive() {
     const store = createLiveStore();
     const start = fakeLive ? fakeStartLive : startLive;
-    const pending = start({ video: videoRef.current, ...store.handlers });
+    // Hold-to-talk: an always-open mic picks up nearby chatter (the venue is loud).
+    const pending = start({ video: videoRef.current, pushToTalk: true, ...store.handlers });
     handleLive();
     setLiveSession({ store, live: null });
     pending
