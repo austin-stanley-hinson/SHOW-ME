@@ -1,0 +1,62 @@
+{
+  "answer": "Step 1: lift the front edge of the seat up toward the backrest.",
+  "followup_question": null,
+  "points": [
+    {
+      "id": "seat_front",
+      "at": [
+        0.3,
+        0.6
+      ]
+    }
+  ],
+  "calc": null,
+  "draw": [
+    {
+      "type": "step",
+      "id": "step1",
+      "at": "seat_front",
+      "n": 1,
+      "label": "Lift seat front"
+    },
+    {
+      "type": "arrow",
+      "id": "lift_motion",
+      "from": [
+        0.3,
+        0.6
+      ],
+      "to": [
+        0.42,
+        0.33
+      ],
+      "color": "#ffcc00"
+    }
+  ],
+  "narration": [
+    {
+      "say": "Grab the front edge of the seat here.",
+      "gesture": {
+        "type": "pulse",
+        "target": "step1"
+      }
+    },
+    {
+      "say": "Then lift it up toward the backrest, like this.",
+      "gesture": {
+        "type": "trace",
+        "target": "lift_motion"
+      }
+    }
+  ],
+  "procedure": {
+    "title": "Fold the chair",
+    "current": 1,
+    "total": 3,
+    "done_when": "The seat is vertical against the backrest.",
+    "complete": false,
+    "safety": [
+      "Keep your fingers away from the hinge while it closes."
+    ]
+  }
+}

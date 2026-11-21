@@ -13,7 +13,7 @@ import speakerFixture from '../../api/fixtures/speaker.json';
 
 const USE_FIXTURE = false;
 const TIMEOUT_MS = 60_000; // a bit longer than the server's 55 s Gemini budget
-const MAX_SIDE = 1024; // px; keeps the upload small and fast
+const MAX_SIDE = 768; // px; smaller upload for venue Wi-Fi (issue #11). TODO: confirm point accuracy on device.
 
 // canvas: an HTMLCanvasElement holding exactly what the user sees (same crop as the screen).
 // previous (optional): { question, response } from the last successful ask.
@@ -53,5 +53,5 @@ function toJpegBase64(canvas) {
     src.height = Math.round(canvas.height * scale);
     src.getContext('2d').drawImage(canvas, 0, 0, src.width, src.height);
   }
-  return src.toDataURL('image/jpeg', 0.8).split(',')[1];
+  return src.toDataURL('image/jpeg', 0.7).split(',')[1];
 }
