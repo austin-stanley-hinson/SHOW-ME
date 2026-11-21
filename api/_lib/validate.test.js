@@ -134,3 +134,10 @@ test('contract v3 examples are valid, and the chair calc checks out', async () =
     }
   }
 });
+
+test('title: optional, garbled leading fragment dropped; answer trimmed', () => {
+  assert.equal(validateResponse({ title: ' me Folding chair', answer: ' Hi', draw: [] }).value.title, 'Folding chair');
+  assert.equal(validateResponse({ title: 'Tripod speaker stand', answer: 'Hi', draw: [] }).value.title, 'Tripod speaker stand');
+  assert.equal(validateResponse({ answer: ' Hi ', draw: [] }).value.title, null);
+  assert.equal(validateResponse({ answer: ' Hi ', draw: [] }).value.answer, 'Hi');
+});

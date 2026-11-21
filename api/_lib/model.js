@@ -4,7 +4,8 @@
 //
 //   askModel(imageBase64, question, previous?, mimeType?) -> { ok: true, value, meta } | { ok: false, error, status?, meta }
 
-import { SYSTEM_PROMPT } from './prompt.js';
+import { buildPrompt } from './prompt.js';
+import { toContractCoords } from './coords.js';
 import { validateResponse } from './validate.js';
 import * as gemini from './providers/gemini.js';
 
@@ -22,7 +23,7 @@ export async function askModel(imageBase64, question, previous = null, mimeType 
       : null;
   // One time budget for all attempts; the client timeout (askApi.js) must be a bit longer.
   const out = await provider.generate({
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: buildPrompt(provider.coords || 'xy01'),
     imageBase64,
     mimeType,
     question,
@@ -41,5 +42,6 @@ export async function askModel(imageBase64, question, previous = null, mimeType 
   }
   // The client sends its current scene as previous.response, so narration/edits may refer to items on screen.
   const previousIds = Array.isArray(previous?.response?.draw) ? previous.response.draw.map((i) => i?.id).filter((x) => typeof x === 'string') : [];
+  if (provider.coords && provider.coords !== 'xy01') data = toContractCoords(data, provider.coords);
   return { ...validateResponse(data, { previousIds }), meta };
 }

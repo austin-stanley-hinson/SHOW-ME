@@ -9,10 +9,12 @@
 const MODELS = process.env.GEMINI_MODEL
   ? [process.env.GEMINI_MODEL]
   : ['gemini-3.6-flash', 'gemini-flash-latest']; // not lite: it produced runaway output in testing
-// No thinking on any model (faster). gemini-3.6-flash takes thinkingLevel; gemini-flash-latest rejects
+// Little or no thinking (faster). gemini-3.6-flash takes thinkingLevel; gemini-flash-latest rejects
 // that (400) but accepts thinkingBudget: 0.
 const THINKING = {
-  'gemini-3.6-flash': { thinkingLevel: 'minimal' },
+  // 'low', not 'minimal': with minimal, 3.6 sometimes starts the answer mid-word (" me stand is…"), 1-2 in 6;
+  // with low + title-first, 0 in 8.
+  'gemini-3.6-flash': { thinkingLevel: 'low' },
   'gemini-flash-latest': { thinkingBudget: 0 },
 };
 const withThinking = (body, model) =>
@@ -20,6 +22,7 @@ const withThinking = (body, model) =>
 const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
 
 export const name = 'gemini';
+export const coords = 'yx1000'; // Gemini's native point format; converted to [x, y] 0-1 in model.js
 
 export async function generate({ systemPrompt, imageBase64, mimeType, question, previous, signal }) {
   const key = process.env.GEMINI_API_KEY;

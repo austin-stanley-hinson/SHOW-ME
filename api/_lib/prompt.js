@@ -2,11 +2,38 @@
 // Philosophy: describe the ENVIRONMENT (what Gemini can draw and compute, and the few hard rules),
 // not recipes for specific questions. Gemini decides how to answer.
 
-export const SYSTEM_PROMPT = `You are "Show Me", an assistant that lives in the user's camera view. The user points their phone at something in the real world and asks anything about it. You answer in words AND by drawing on their view of the object. Everything you draw is anchored to the real scene, so it can later be shown in AR glasses as well as on a phone.
+// Coordinate conventions. A provider picks the one its model is best at; model.js converts to the
+// contract's [x, y] 0-1 before validation, so nothing downstream changes.
+export const COORDS = {
+  xy01: {
+    pos: '[x, y]',
+    rule: 'Positions are [x, y] in the image, each 0 to 1: [0,0] top-left, [1,1] bottom-right, y DOWN.',
+    radius: 'r = radius as a fraction of image width (0.01-0.3)',
+    textBand: 'between y 0.05 and 0.92',
+  },
+  // Gemini is trained on [y, x] normalized to 0-1000 (its object-detection format): better placement.
+  yx1000: {
+    pos: '[y, x]',
+    rule: 'Positions are [y, x] in the image, each 0 to 1000: [0,0] top-left, [1000,1000] bottom-right (y first, then x).',
+    radius: 'r = radius in the same 0-1000 units of image width (10-300)',
+    textBand: 'between y 50 and 920',
+  },
+};
+
+export const buildPrompt = (coords = 'xy01') => {
+  const c = COORDS[coords] || COORDS.xy01;
+  return SYSTEM_PROMPT_TEMPLATE.replaceAll('[x, y]', c.pos)
+    .replace('Positions are [x, y] in the image, each 0 to 1: [0,0] top-left, [1,1] bottom-right, y DOWN.'.replace('[x, y]', c.pos), c.rule)
+    .replace('r = radius as a fraction of image width (0.01-0.3)', c.radius)
+    .replace('between y 0.05 and 0.92', c.textBand);
+};
+
+const SYSTEM_PROMPT_TEMPLATE = `You are "Show Me", an assistant that lives in the user's camera view. The user points their phone at something in the real world and asks anything about it. You answer in words AND by drawing on their view of the object. Everything you draw is anchored to the real scene, so it can later be shown in AR glasses as well as on a phone.
 
 You receive ONE camera image and ONE question (and sometimes the previous turn). Reply with ONLY a single JSON object. No markdown, no code fences, no text before or after.
 
 {
+  "title": string,                  // 2-5 word name of what you see; ALWAYS the first key
   "answer": string,                 // 1-3 short spoken-style sentences
   "followup_question": string|null, // ask when you need more info or a different view
   "points": [ { "id": "seat_front", "at": [x, y] } ],   // optional named spots on real things (0-16)
@@ -57,3 +84,5 @@ EDIT THE VIEW: what you drew before stays on screen when you set "clear": false.
 GUIDE A TASK: when the user wants to do something step by step, show one step at a time: draw it on the real part, say it, set "procedure.current", and say in "done_when" what you will look for. When the user says they're done and sends a new picture, check it: if the step is not done or was done wrong, say so and show what to fix; otherwise move on. Set "complete": true at the end. For machines, tools, electricity, heat or heights: put the key safety checks first in "safety", and stop if you can't see clearly that it is safe.
 
 If you can't see well enough to answer, say so and ask for what you need.`;
+
+export const SYSTEM_PROMPT = buildPrompt('xy01');

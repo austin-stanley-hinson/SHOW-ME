@@ -97,6 +97,12 @@ function cleanItem(item, points) {
 }
 
 // options.previousIds: ids of items currently on screen (lets narration/edits refer to them).
+function cleanTitle(t) {
+  if (typeof t !== 'string') return null;
+  const s = t.trim().replace(/^[a-z]+\s+(?=[A-Z])/, '').slice(0, 40);
+  return s || null;
+}
+
 export function validateResponse(data, options = {}) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: 'not an object' };
   if (typeof data.answer !== 'string' || !data.answer.trim()) return { ok: false, error: 'missing answer' };
@@ -131,7 +137,10 @@ export function validateResponse(data, options = {}) {
   return {
     ok: true,
     value: {
-      answer: data.answer,
+      // Gemini sometimes garbles the very first string it writes (" me stand is…"), so the prompt puts a
+      // throwaway-safe title first. Clean it: drop a leading lowercase fragment, keep it short.
+      title: cleanTitle(data.title),
+      answer: data.answer.trim(),
       followup_question: data.followup_question,
       points: points.list,
       calc: data.calc,
