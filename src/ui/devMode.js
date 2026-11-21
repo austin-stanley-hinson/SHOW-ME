@@ -46,3 +46,76 @@ export function placeholderFrame(w, h) {
   }
   return c;
 }
+
+// ?fakelive=1 → a scripted stand-in for startLive() (src/client/live.js), same API, no network/mic.
+// Lets the live UI be tested and screenshotted without a Gemini Live connection.
+export const fakeLive = params.get('fakelive') === '1';
+
+export function fakeStartLive(h) {
+  const chairV = validateResponse(structuredClone(chair)).value;
+  const foldV = validateResponse(structuredClone(fold)).value;
+  let scene = { items: [], points: [] };
+  let closed = false;
+  const timers = [];
+  const at = (ms, fn) => timers.push(setTimeout(() => !closed && fn(), ms));
+  const speak = (start, text) => {
+    const words = text.split(' ');
+    words.forEach((_, i) => at(start + i * 140, () => h.onSaid?.(words.slice(0, i + 1).join(' '), i === words.length - 1)));
+    at(start, () => h.onStatus?.('speaking'));
+    at(start + words.length * 140 + 300, () => h.onStatus?.('listening'));
+  };
+
+  h.onStatus?.('connecting');
+  at(700, () => h.onStatus?.('listening'));
+  at(1200, () => h.onHeard?.('How hard can I push the backrest before it tips?'));
+  at(1600, async () => {
+    const { evaluateCalc } = await import('../physics/calc.js');
+    scene = { items: chairV.draw, points: chairV.points || [] };
+    h.onCalc?.({ sheet: chairV.calc, result: evaluateCalc(chairV.calc) });
+  });
+  speak(1700, 'Its weight holds it down around the rear feet. A push of about eight newtons at the top tips it.');
+  at(2200, () => h.onGesture?.({ type: 'trace', target: chairV.draw.find((i) => i.type === 'arrow')?.id }));
+  at(3600, () => h.onGesture?.({ type: 'pulse', target: chairV.draw.find((i) => i.type === 'circle')?.id }));
+  if (params.get('fakestep') === '1') {
+    at(6000, () => h.onHeard?.('Now how do I fold it?'));
+    at(6400, () => {
+      scene = { items: foldV.draw, points: foldV.points || [] };
+      h.onProcedure?.(foldV.procedure);
+    });
+    speak(6500, foldV.answer);
+    at(7000, () => h.onGesture?.({ type: 'pulse', target: 'step1' }));
+  }
+
+  const t0 = performance.now();
+  return new Promise((resolve) =>
+    setTimeout(
+      () =>
+        resolve({
+          say: (text) => {
+            h.onHeard?.(text);
+            speak(300, `(simulated) You said: ${text}`);
+          },
+          mute: () => {},
+          get scene() {
+            return scene;
+          },
+          // Small drift stands in for the tracker moving drawings with the phone.
+          trackedScene: () => {
+            const dx = Math.sin((performance.now() - t0) / 1500) * 0.01;
+            const move = (p) => (Array.isArray(p) ? [p[0] + dx, p[1]] : p);
+            return {
+              items: scene.items.map((i) => ({ ...i, at: move(i.at), from: move(i.from), to: move(i.to) })),
+              points: scene.points,
+              tracking: { quality: 1, lost: false },
+            };
+          },
+          stop: () => {
+            closed = true;
+            timers.forEach(clearTimeout);
+            h.onStatus?.('closed');
+          },
+        }),
+      300,
+    ),
+  );
+}

@@ -4,7 +4,11 @@ import { ask } from '../client/askApi.js';
 import { emptyScene, applyResponse, previousFor } from '../client/view.js';
 import { buildScene } from '../overlay/scene.js';
 import AnnotationLayer from '../overlay/AnnotationLayer.jsx';
-import { fixtureName, fixtureAnswer, placeholderFrame } from './devMode.js';
+import { AnswerText, CalcText } from './AnswerParts.jsx';
+import { fixtureName, fixtureAnswer, placeholderFrame, fakeLive, fakeStartLive } from './devMode.js';
+import { startLive } from '../client/live.js';
+import { createLiveStore } from './liveStore.js';
+import LiveMode from './LiveMode.jsx';
 
 const PRESETS = ['Why isn’t it falling?', 'How do I use this?', 'What is this?'];
 const ERROR_CAPTION = 'Sorry, I couldn’t figure that out. Try again.';
@@ -21,6 +25,8 @@ export default function CameraScreen({ stream, orientation }) {
   const [status, setStatus] = useState('live'); // live | thinking | result | error
   const [scene, setScene] = useState(null);
   const [view, setView] = useState(emptyScene);
+  const [liveSession, setLiveSession] = useState(null); // { store, live } while in live mode
+  const liveRef = useRef(null);
   const [question, setQuestion] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
   const [textHidden, setTextHidden] = useState(false);
@@ -117,6 +123,30 @@ export default function CameraScreen({ stream, orientation }) {
     setCaption(next.answer || 'Here’s what I found.');
   }
 
+  // Live mode must start inside this tap (iOS only allows audio from a user gesture).
+  function goLive() {
+    const store = createLiveStore();
+    const start = fakeLive ? fakeStartLive : startLive;
+    const pending = start({ video: videoRef.current, ...store.handlers });
+    handleLive();
+    setLiveSession({ store, live: null });
+    pending
+      .then((live) => {
+        liveRef.current = live;
+        setLiveSession((cur) => (cur?.store === store ? { store, live } : (live.stop(), cur)));
+      })
+      .catch((e) => store.set({ status: 'error', error: `Couldn’t start live mode: ${e.message}` }));
+  }
+
+  function endLive() {
+    liveRef.current?.stop();
+    liveRef.current = null;
+    setLiveSession(null);
+  }
+
+  // Leaving the screen ends any live session.
+  useEffect(() => () => liveRef.current?.stop(), []);
+
   function handleLive() {
     requestId.current++;
     if (stream) setFrame(null);
@@ -128,6 +158,15 @@ export default function CameraScreen({ stream, orientation }) {
   }
 
   const thinking = status === 'thinking';
+
+  if (liveSession) {
+    return (
+      <main className="camera-screen">
+        {stream && <video ref={videoRef} className="camera-video" playsInline muted autoPlay />}
+        <LiveMode session={liveSession} video={stream ? videoRef.current : null} onExit={endLive} />
+      </main>
+    );
+  }
 
   return (
     <main className="camera-screen">
@@ -146,7 +185,7 @@ export default function CameraScreen({ stream, orientation }) {
                 aria-pressed={!drawingsHidden}
                 onClick={() => setDrawingsHidden((v) => !v)}
               >
-                Drawings {drawingsHidden ? 'off' : 'on'}
+                Drawings
               </button>
               <button
                 type="button"
@@ -154,7 +193,7 @@ export default function CameraScreen({ stream, orientation }) {
                 aria-pressed={!textHidden}
                 onClick={() => setTextHidden((v) => !v)}
               >
-                Text {textHidden ? 'off' : 'on'}
+                Text
               </button>
             </>
           )}
@@ -193,6 +232,12 @@ export default function CameraScreen({ stream, orientation }) {
 
           {scene?.hasCalc && <CalcText scene={scene} />}
         </div>
+
+        {!thinking && !scene && !textHidden && (stream || fakeLive) && (
+          <button type="button" className="big-button live-button" onClick={goLive}>
+            <span className="dot" aria-hidden="true" /> Go live: talk with the AI
+          </button>
+        )}
 
         {!thinking && !scene && !textHidden && (
           <div className="presets" aria-label="Example questions">
@@ -233,52 +278,5 @@ export default function CameraScreen({ stream, orientation }) {
 
       </div>
     </main>
-  );
-}
-
-// The answer, with numbers the checker couldn't trace to the calc marked (CONTRACT v3).
-function AnswerText({ parts, fallback }) {
-  if (!parts.length) return fallback;
-  return parts.map((p, i) =>
-    p.unchecked ? (
-      <mark key={i} className="unchecked" title="This number wasn’t checked">
-        {p.text}
-        <span className="sr-only"> (not checked)</span>
-      </mark>
-    ) : (
-      p.text
-    ),
-  );
-}
-
-// Verdict + check status + explanation + assumptions are always visible here (the canvas panel
-// shows only the math). The math is repeated for screen readers, and shown visibly if no panel drew it.
-function CalcText({ scene }) {
-  const { calc, explanation, calcPanelDrawn } = scene;
-  const v = calc.verdict;
-  return (
-    <div className="physics-text">
-      {v?.text && (
-        <p className={`verdict ${v.check === 'mismatch' ? 'warn' : ''}`}>
-          {v.check === 'mismatch' ? `⚠ The AI said “${v.text}”, but the numbers say: ${v.expected}` : `${v.text}${v.check === 'ok' ? ' ✓' : ''}`}
-        </p>
-      )}
-      {calc.ok && (
-        <p className={`check-status ${calc.verified ? 'ok' : 'warn'}`}>
-          {calc.verified
-            ? '✓ Math checked: every step re-computed by our code'
-            : `⚠ ${calc.mismatches.length} step${calc.mismatches.length === 1 ? '' : 's'} didn’t check out (marked ⚠)`}
-        </p>
-      )}
-      {explanation && <p className="explanation">{explanation}</p>}
-      {calc.lines.length > 0 && (
-        <ul className={calcPanelDrawn ? 'sr-only' : undefined}>
-          {calc.lines.map((l) => (
-            <li key={l}>{l}</li>
-          ))}
-        </ul>
-      )}
-      {calc.assumptions.length > 0 && <p className="assumptions">Estimates are based on: {calc.assumptions.join('; ')}</p>}
-    </div>
   );
 }

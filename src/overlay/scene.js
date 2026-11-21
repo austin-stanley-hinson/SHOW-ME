@@ -53,6 +53,8 @@ function normalizeItem(raw, calc) {
     text: formatLabel(label, typeof raw.quantity === 'string' ? raw.quantity : null, calc),
   };
   for (const f of fields) item[f] = clampXY(raw[f]);
+  if (raw.stale) item.stale = true; // live mode: the tracker lost this spot
+  if (raw.refs && typeof raw.refs === 'object') item.refs = raw.refs; // point ids, for gesture targets
 
   if (raw.type === 'step') item.n = raw.n;
   if (raw.type === 'circle') {
@@ -88,9 +90,10 @@ function markUnchecked(text, flagged) {
 // data: the latest contract answer (from /api/ask or a fixture).
 // items (optional): the current view's items from src/client/view.js (applyResponse), so
 // follow-up answers that edit the view (clear: false) keep what's already on screen.
-export function buildScene(data, items = null) {
-  const calc = evaluateCalc(data?.calc ?? null);
-  const hasCalc = Boolean(data?.calc);
+// opts.calc (optional): an evaluateCalc result already computed (live mode gets one from onCalc).
+export function buildScene(data, items = null, opts = {}) {
+  const calc = opts.calc ?? evaluateCalc(data?.calc ?? null);
+  const hasCalc = Boolean(data?.calc) || Boolean(opts.calc);
   const drawn = [];
   const seen = new Set();
   const source = Array.isArray(items) ? items : Array.isArray(data?.draw) ? data.draw : [];
@@ -114,7 +117,7 @@ export function buildScene(data, items = null) {
     title: str(data?.title, 60),
     answer,
     // The answer with numbers the checker couldn't trace marked (CONTRACT: "mark untraced numbers").
-    answerParts: markUnchecked(answer, hasCalc ? auditText(answer, calc, data.calc) : []),
+    answerParts: markUnchecked(answer, hasCalc ? auditText(answer, calc, data?.calc) : []),
     followup: str(data?.followup_question, 300) || null,
     items: drawn,
     steps,

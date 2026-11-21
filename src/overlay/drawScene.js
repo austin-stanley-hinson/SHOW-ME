@@ -1,8 +1,14 @@
 // Draws a scene (from buildScene) onto a 2D canvas of size w×h (CSS pixels; caller handles DPR).
-// Coordinates are normalized to the captured frame, which fills the canvas exactly.
+// Coordinates are normalized [x, y] 0-1 of the camera frame Gemini saw.
 //
-// The same function will draw the texture for the three.js plane in the gyro branch, so it
-// only depends on (ctx, scene, w, h, opts).
+// opts.frame: { x, y, w, h } where that frame sits on the canvas, in px. Default: fills the canvas
+//   (photo mode: the frozen frame is cropped exactly like the screen). Live mode sends Gemini the
+//   whole video frame while the screen shows it cropped (object-fit: cover), so the frame rect
+//   is bigger than the canvas and some items can sit off screen.
+// opts.gestures: Map target id -> { type: 'pulse' | 'point' | 'trace' | ..., start, until } (ms).
+// opts.points: named points [{ id, at }] so gestures can target a spot that isn't drawn.
+// opts.now: performance.now() for gesture animation; opts.reduceMotion: draw gestures still.
+// Items with stale: true (the tracker lost them) are drawn faded.
 //
 // opts.topRight: { w, h } px of UI in the top-right corner (result controls); avoided like the bar.
 // opts.bottomInset: px at the bottom covered by UI. Text avoids that area when it can (shapes
@@ -16,12 +22,14 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
   ctx.clearRect(0, 0, w, h);
   if (!scene) return;
   const s = Math.min(w, h) / 390; // sizes are designed for a ~390px-wide phone
+  const f = opts.frame || { x: 0, y: 0, w, h };
   const env = {
     ctx,
     w,
     h,
     s,
-    P: ([x, y]) => [x * w, y * h],
+    fw: f.w, // frame width in px: circle radii are a fraction of it
+    P: ([x, y]) => [f.x + x * f.w, f.y + y * f.h],
     placed: [], // rects already taken (UI, markers, panel, labels), for collision avoidance
     texts: new Set(), // identical labels are drawn once (e.g. three "Leg = 65.3 N")
   };
@@ -34,8 +42,14 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
   // Lines, arrows and circles first, then point/step markers on top, so a marker's number is
   // never hidden under an arrow that starts on it (array order otherwise).
   const isMarker = (i) => i.type === 'point' || i.type === 'step';
-  for (const item of scene.items) if (!isMarker(item)) SHAPES[item.type]?.(env, item);
-  for (const item of scene.items) if (isMarker(item)) SHAPES[item.type]?.(env, item);
+  const shape = (item) => {
+    ctx.globalAlpha = item.stale ? 0.4 : 1;
+    SHAPES[item.type]?.(env, item);
+  };
+  for (const item of scene.items) if (!isMarker(item)) shape(item);
+  for (const item of scene.items) if (isMarker(item)) shape(item);
+  ctx.globalAlpha = 1;
+  if (opts.gestures?.size) drawGestures(env, scene.items, opts);
   env.shapeBoxes = scene.items
     .filter((i) => i.from && i.to)
     .map((i) => {
@@ -47,7 +61,7 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
   for (const item of scene.items) {
     if (item.type === 'circle') {
       const [x, y] = env.P(item.at);
-      const r = item.r * w;
+      const r = item.r * env.fw;
       env.placed.push({ l: x - r, t: y - r, r: x + r, b: y + r });
     } else if (item.type === 'step' || item.type === 'point') {
       const [x, y] = env.P(item.at);
@@ -57,7 +71,56 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
   }
   // Panels first (largest), then labels around them.
   for (const item of scene.items) if (item.type === 'panel') drawPanel(env, item);
-  for (const item of scene.items) if (item.type !== 'panel') LABELS[item.type]?.(env, item);
+  for (const item of scene.items) {
+    if (item.type === 'panel') continue;
+    ctx.globalAlpha = item.stale ? 0.5 : 1;
+    LABELS[item.type]?.(env, item);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- gestures (the AI "pointing" while it talks) ----------
+// Calm motion only: a slowly breathing halo, or a dot gliding along an arrow. No flashing.
+
+function anchorOf(env, item) {
+  if (item.at) return env.P(item.at);
+  if (item.from && item.to) {
+    const a = env.P(item.from);
+    const b = env.P(item.to);
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  }
+  return null;
+}
+
+function drawGestures(env, items, opts) {
+  const { ctx, s } = env;
+  const now = opts.now ?? 0;
+  for (const [target, g] of opts.gestures) {
+    if (!(g.until > now)) continue;
+    const item = items.find((i) => i.id === target || Object.values(i.refs || {}).includes(target));
+    const point = !item && (opts.points || []).find((p) => p.id === target);
+    const at = item ? anchorOf(env, item) : point ? env.P(point.at) : null;
+    if (!at) continue;
+    const t = (now - (g.start ?? now)) / 1000;
+    const breathe = opts.reduceMotion ? 0 : Math.sin(t * Math.PI * 1.6); // ~0.8 Hz
+    const base = item?.type === 'circle' ? Math.max(10 * s, item.r * env.fw) + 10 * s : 24 * s;
+
+    if (g.type === 'trace' && item?.from && item?.to && !opts.reduceMotion) {
+      const a = env.P(item.from);
+      const b = env.P(item.to);
+      const k = (t % 1.4) / 1.4;
+      circle(env, [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], 9 * s, '#ffffff');
+      continue;
+    }
+    const r = base + (g.type === 'pulse' ? 6 : 4) * s * breathe;
+    for (const [color, width] of [[OUTLINE, 7 * s], ['#ffffff', 3.5 * s]]) {
+      ctx.beginPath();
+      ctx.arc(at[0], at[1], r, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+  }
 }
 
 // ---------- shapes ----------
@@ -86,7 +149,7 @@ const SHAPES = {
   circle(env, it) {
     const { ctx, s } = env;
     const [x, y] = env.P(it.at);
-    const r = Math.max(10 * s, it.r * env.w);
+    const r = Math.max(10 * s, it.r * env.fw);
     for (const [color, width] of [[OUTLINE, 7 * s], [it.color, 4 * s]]) {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -115,7 +178,7 @@ const LABELS = {
   circle(env, it) {
     if (!it.text) return;
     const [x, y] = env.P(it.at);
-    const r = Math.max(10 * env.s, it.r * env.w);
+    const r = Math.max(10 * env.s, it.r * env.fw);
     const g = r + 8 * env.s;
     placePill(env, it.text, it.color, [
       [x + g, y, 'left'],
