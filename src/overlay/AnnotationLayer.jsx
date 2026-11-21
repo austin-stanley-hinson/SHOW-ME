@@ -3,7 +3,7 @@ import { drawScene } from './drawScene.js';
 
 // Transparent canvas over the frozen frame. Redraws on scene change, inset change and resize.
 // bottomInset: height (px) of the UI covering the bottom of the screen; text stays above it.
-export default function AnnotationLayer({ scene, bottomInset = 0 }) {
+export default function AnnotationLayer({ scene, bottomInset = 0, topRight = null }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -16,12 +16,12 @@ export default function AnnotationLayer({ scene, bottomInset = 0 }) {
       canvas.height = Math.round(h * dpr);
       const ctx = canvas.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawScene(ctx, scene, w, h, { bottomInset });
+      drawScene(ctx, scene, w, h, { bottomInset, topRight });
     }
     draw();
     window.addEventListener('resize', draw);
     return () => window.removeEventListener('resize', draw);
-  }, [scene, bottomInset]);
+  }, [scene, bottomInset, topRight?.w, topRight?.h]);
 
   // Decorative for screen readers: the same content is in the caption area as real text.
   return <canvas ref={ref} className="annotation-layer" aria-hidden="true" />;

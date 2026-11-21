@@ -4,6 +4,7 @@
 // The same function will draw the texture for the three.js plane in the gyro branch, so it
 // only depends on (ctx, scene, w, h, opts).
 //
+// opts.topRight: { w, h } px of UI in the top-right corner (result controls); avoided like the bar.
 // opts.bottomInset: px at the bottom covered by UI. Text avoids that area when it can (shapes
 // stay where Gemini put them, since they must line up with the image).
 
@@ -27,6 +28,8 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
 
   const inset = Math.max(0, opts.bottomInset || 0);
   if (inset) env.placed.push({ l: 0, t: h - inset, r: w, b: h });
+  const tr = opts.topRight;
+  if (tr?.w && tr?.h) env.placed.push({ l: w - tr.w, t: 0, r: w, b: tr.h });
 
   for (const item of scene.items) SHAPES[item.type]?.(env, item);
   env.shapeBoxes = scene.items

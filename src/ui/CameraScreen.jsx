@@ -22,8 +22,11 @@ export default function CameraScreen({ stream, orientation }) {
   const [question, setQuestion] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
   const [textHidden, setTextHidden] = useState(false);
+  const [drawingsHidden, setDrawingsHidden] = useState(false);
   const barRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
+  const controlsRef = useRef(null);
+  const [controlsBox, setControlsBox] = useState(null);
   const [caption, setCaption] = useState(
     orientation === 'denied'
       ? 'Motion sensors are off, so drawings won’t follow the phone. Point at something and ask.'
@@ -52,6 +55,20 @@ export default function CameraScreen({ stream, orientation }) {
     ro.observe(bar);
     return () => ro.disconnect();
   }, []);
+
+  // Track the top-right controls' footprint so the panel/labels avoid it.
+  useEffect(() => {
+    const el = controlsRef.current;
+    if (!el) return setControlsBox(null);
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setControlsBox({ w: window.innerWidth - r.left + 8, h: r.bottom + 8 });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scene, stream]);
 
   // Show the captured canvas itself, so what's on screen is exactly what gets sent.
   useEffect(() => {
@@ -92,6 +109,7 @@ export default function CameraScreen({ stream, orientation }) {
     const next = buildScene(result.data);
     setScene(next);
     setTextHidden(false);
+    setDrawingsHidden(false);
     setStatus('result');
     setCaption(next.answer || 'Here’s what I found.');
     setLastTurn({ question: q, response: result.data });
@@ -113,19 +131,40 @@ export default function CameraScreen({ stream, orientation }) {
     <main className="camera-screen">
       {stream && <video ref={videoRef} className="camera-video" playsInline muted autoPlay />}
       <div ref={frozenRef} className="frozen-frame" hidden={!frame} />
-      {scene && <AnnotationLayer scene={scene} bottomInset={textHidden ? 0 : barHeight} />}
+      {scene && !drawingsHidden && <AnnotationLayer scene={scene} bottomInset={textHidden ? 0 : barHeight} topRight={controlsBox} />}
+
+      {/* Result controls: show/hide the drawings and the text independently, or close the result. */}
+      {(scene || (frame && stream && status !== 'live')) && (
+        <div className="result-controls" role="toolbar" aria-label="Answer display" ref={controlsRef}>
+          {scene && (
+            <>
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed={!drawingsHidden}
+                onClick={() => setDrawingsHidden((v) => !v)}
+              >
+                Drawings {drawingsHidden ? 'off' : 'on'}
+              </button>
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed={!textHidden}
+                onClick={() => setTextHidden((v) => !v)}
+              >
+                Text {textHidden ? 'off' : 'on'}
+              </button>
+            </>
+          )}
+          {stream && (
+            <button type="button" className="toggle close" onClick={handleLive} aria-label="Close answer and go back to the live camera">
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="bottom-bar" ref={barRef}>
-        {scene && (
-          <button
-            type="button"
-            className="toggle-text"
-            aria-expanded={!textHidden}
-            onClick={() => setTextHidden((v) => !v)}
-          >
-            {textHidden ? 'Show answer' : 'Hide answer to see drawing'}
-          </button>
-        )}
         <div className="caption-area" hidden={textHidden}>
           <p className="caption" role="status" aria-live="polite">
             {thinking && <span className="spinner" aria-hidden="true" />}
@@ -189,11 +228,6 @@ export default function CameraScreen({ stream, orientation }) {
           </button>
         </form>
 
-        {frame && stream && !textHidden && (
-          <button type="button" className="secondary-button" onClick={handleLive}>
-            Back to live camera
-          </button>
-        )}
       </div>
     </main>
   );

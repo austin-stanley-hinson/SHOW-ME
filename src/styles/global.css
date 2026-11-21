@@ -308,3 +308,36 @@ body,
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Top-right result controls: independent on/off for drawings and text, plus close. */
+.result-controls {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.toggle {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.toggle.close {
+  padding: 0;
+  width: 44px;
+  font-size: 1.1rem;
+}
