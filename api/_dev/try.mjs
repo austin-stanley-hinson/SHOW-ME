@@ -15,7 +15,9 @@ if (!imagePath || !question) {
 }
 
 const t0 = Date.now();
-const result = await askGemini(readFileSync(imagePath).toString('base64'), question);
+const ext = imagePath.split('.').pop().toLowerCase();
+const mime = { heic: 'image/heic', heif: 'image/heif', png: 'image/png', webp: 'image/webp' }[ext] || 'image/jpeg';
+const result = await askGemini(readFileSync(imagePath).toString('base64'), question, null, mime);
 console.log(`(${Date.now() - t0} ms)`);
 if (!result.ok) {
   console.error('FAILED:', result.error);

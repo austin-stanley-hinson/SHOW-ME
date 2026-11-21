@@ -5,13 +5,16 @@ import { SYSTEM_PROMPT } from './prompt.js';
 import { validateResponse } from './validate.js';
 import { RESPONSE_SCHEMA } from './schema.js';
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+// Tried in order; the next one is used if a model is busy (429/503) or gone (404).
+const MODELS = process.env.GEMINI_MODEL
+  ? [process.env.GEMINI_MODEL]
+  : ['gemini-3.6-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest'];
+const urlFor = (m) => `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
 
-// imageBase64: JPEG as base64, no "data:" prefix.
+// imageBase64: JPEG (or mimeType) as base64, no "data:" prefix.
 // previous (optional): { question, response } from the last turn, so follow-up answers have context.
 // Returns { ok: true, value } or { ok: false, error }.
-export async function askGemini(imageBase64, question, previous = null) {
+export async function askGemini(imageBase64, question, previous = null, mimeType = 'image/jpeg') {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, error: 'GEMINI_API_KEY is not set' };
 
@@ -30,7 +33,7 @@ export async function askGemini(imageBase64, question, previous = null) {
       ...history,
       {
         role: 'user',
-        parts: [{ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } }, { text: question }],
+        parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: question }],
       },
     ],
     generationConfig: {
@@ -41,14 +44,17 @@ export async function askGemini(imageBase64, question, previous = null) {
   };
 
   let res;
-  try {
-    res = await fetch(URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    return { ok: false, error: 'could not reach Gemini' };
+  for (const model of MODELS) {
+    try {
+      res = await fetch(urlFor(model), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return { ok: false, error: 'could not reach Gemini' };
+    }
+    if (![404, 429, 503].includes(res.status)) break;
   }
   if (!res.ok) return { ok: false, error: `Gemini HTTP ${res.status}` };
 
