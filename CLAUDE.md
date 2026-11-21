@@ -7,11 +7,11 @@
 "Other AI assistants tell you. This one shows you." It's a web app for iPhone Safari. You point the camera at something and ask a question. Gemini returns structured JSON, and we draw arrows, labels, steps and a math panel over the live camera view with three.js.
 WHACK hackathon, Nov 21–22, 2026. A working demo matters more than extra features.
 
-Stack: Vite + React, three.js, a server endpoint that calls Gemini, and Vercel hosting. The API server moves to Vultr later.
+Stack: Vite + React, three.js, a server endpoint that calls the model (Gemini by default, swappable via `MODEL_PROVIDER`), Vercel hosting, and a small session relay on Vultr (`server/`).
 
 ## Rules that always apply
 
-1. **Gemini gives positions and estimates. Our code does the math** (`src/physics/physics.js`). Never use numbers Gemini calculated.
+1. **The model computes, our code checks** (`src/physics/calc.js`). The model shows its work as a calc sheet; every step is re-computed and marked ✓/⚠, the verdict is checked, and numbers in free text are audited. Never show a model number without its check status.
 2. **Label estimates as estimates**, e.g. "~4 kg (estimated)", and show their assumptions.
 3. **The Gemini API key exists only on the server.** Read it as `process.env.GEMINI_API_KEY`. Never use a `VITE_` prefix, never put it in client code, and never commit it.
 4. **Send a camera frame only when the user asks a question.** Never store it or log it on the server.
@@ -27,11 +27,11 @@ Each lane owns certain files. **Only edit files your lane owns.** If you need a 
 | Lane | Owner | Files |
 |---|---|---|
 | **A: Client / Renderer** | Austin | `src/camera/`, `src/orientation/`, `src/overlay/` (three.js), `src/ui/`, `src/App.jsx`, `src/main.jsx`, `index.html`, `src/styles/` |
-| **B: Server / Gemini / Math** | Josh | `api/` (server endpoint + Gemini prompt), `server/` (Vultr version), `src/physics/`, `src/client/askApi.js` (fetch wrapper) |
+| **B: Server / Gemini / Math** | Josh | `api/` (server endpoint, model providers, prompt), `server/` (session relay on Vultr), `src/physics/`, `src/client/askApi.js` + `src/client/session.js` |
 | **Shared (both must agree)** | both | `CONTRACT.md`, `package.json`, `package-lock.json`, `vite.config.js`, `vercel.json`, `.gitignore`, `CLAUDE.md`, `README.md` |
 
 Rules for shared files:
-- **`CONTRACT.md` is the contract between the lanes.** Change it only in its own PR, after both humans agree. Bump the version in its title, and say what changed in the PR description. Update the Gemini schema (`api/_lib/schema.js`) in the same PR so the two never disagree.
+- **`CONTRACT.md` is the contract between the lanes.** Change it only in its own PR, after both humans agree. Bump the version in its title, and say what changed in the PR description.
 - **Dependencies:** keep `package.json` changes in a small commit of their own (`chore(deps): add X`). Merge it to `main` quickly so the other lane can rebase. If `package-lock.json` conflicts, don't hand-merge it: take `main`'s version and run `npm install` again.
 - **New folders** belong to the lane that creates them. Add them to the table above in the same PR.
 
@@ -39,7 +39,7 @@ Rules for shared files:
 
 **`CONTRACT.md` is the only source of truth** for the JSON shape that passes between Gemini, the server and the renderer. Read it before any task that touches the response. Don't copy the schema anywhere else (including into this file), so there is never a second version to drift.
 
-The rule that matters most is "Gemini estimates, our code calculates." Gemini returns positions, input estimates and assumptions under `physics`. `physics.js` computes every derived number, and the renderer inserts it using each draw item's `quantity`.
+The rule that matters most is "the model computes, our code checks." The model returns a `calc` sheet (inputs, formulas and its own results). `evaluateCalc` re-computes and checks every step, and the renderer shows each value with its check status using each draw item's `quantity`.
 
 ## Git workflow (keep it clean)
 
