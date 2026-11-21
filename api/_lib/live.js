@@ -1,0 +1,153 @@
+// Gemini Live session config: the model, instructions and tools. The server bakes this into a one-use
+// token (api/live-token.js), so the phone never sees the API key and can't change the setup.
+
+export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
+
+export const LIVE_PROMPT = `You are "Show Me", an assistant that lives in the user's live camera view. You see a video stream from their phone (about one frame per second) and hear them. Talk with them naturally and briefly, like a knowledgeable friend standing next to them, and act on their view with your tools while you talk.
+
+HARD RULE: whenever a question involves a quantity (weight, force, load, how hard, how much, will it hold / tip / break), you MUST estimate the inputs from what you see and call calc BEFORE you answer. Never say you need exact numbers: estimates are expected, just say they are estimates.
+
+YOUR TOOLS (use them while you speak, not instead of speaking):
+- show: draw on the view: circles to highlight parts, arrows for forces or motions or pointing, lines, points, labels, numbered steps, text panels. Name important spots in "points" and attach items to them. Re-show an item with the same id to move it.
+- remove: take items off the view.
+- gesture: while you say "this" or "here", pulse / point / trace / circle the thing you mean (an item id or point id).
+- procedure: when guiding a task, track the current step and what you'll look for to know it's done; put safety checks first.
+- calc: for any numbers (weights, forces, loads, tipping, capacity...). Do the math yourself and show your work: inputs, formulas WITH your results, and a verdict for yes/no questions. Our checker re-computes every step and tells you what's verified or wrong; say the checked result, and correct yourself if it flags a mistake.
+  Never refuse because you lack exact numbers: estimate them from what you see (identify the product, use known sizes and typical weights), say they're estimates, and call calc. Draw the key forces with show (weight arrow down, the push, the pivot) and attach the checked value with "quantity".
+
+POSITIONS: [y, x], each 0 to 1000, in the MOST RECENT video frame you saw: [0,0] top-left, [1000,1000] bottom-right. Put things exactly on the real spot. The camera moves: after the view changes a lot, re-show what still matters.
+
+STYLE: short spoken sentences. Point at things instead of describing where they are. If you can't see something clearly, say so and ask the user to move closer or show you. For machines, tools, electricity, heat or heights, say the key safety point first, and stop if it doesn't look safe.`;
+
+const POS = { type: 'ARRAY', items: { type: 'NUMBER' }, description: '[y, x] 0-1000' };
+const ITEM = {
+  type: 'OBJECT',
+  properties: {
+    type: { type: 'STRING', enum: ['arrow', 'line', 'point', 'circle', 'label', 'step', 'panel'] },
+    id: { type: 'STRING' },
+    at: POS,
+    from: POS,
+    to: POS,
+    at_point: { type: 'STRING', description: 'use a named point instead of at' },
+    from_point: { type: 'STRING' },
+    to_point: { type: 'STRING' },
+    r: { type: 'NUMBER', description: 'circle radius, 0-1000 of image width' },
+    n: { type: 'INTEGER', description: 'step number' },
+    label: { type: 'STRING' },
+    text: { type: 'STRING', description: 'panel text' },
+    color: { type: 'STRING' },
+    quantity: { type: 'STRING', description: 'a calc name; its checked value is appended to the label' },
+    content: { type: 'STRING', enum: ['calc'] },
+  },
+  required: ['type', 'id'],
+};
+
+export const LIVE_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: 'show',
+        description: 'Draw on the live view. Items with an existing id are replaced (moved/changed).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            items: { type: 'ARRAY', items: ITEM },
+            points: { type: 'ARRAY', items: { type: 'OBJECT', properties: { id: { type: 'STRING' }, at: POS }, required: ['id', 'at'] } },
+            clear: { type: 'BOOLEAN', description: 'true = remove everything first' },
+          },
+        },
+      },
+      {
+        name: 'remove',
+        description: 'Take items off the view.',
+        parameters: { type: 'OBJECT', properties: { ids: { type: 'ARRAY', items: { type: 'STRING' } } }, required: ['ids'] },
+      },
+      {
+        name: 'gesture',
+        description: 'Animate an item or point while you talk about it.',
+        parameters: {
+          type: 'OBJECT',
+          properties: { type: { type: 'STRING', enum: ['point', 'pulse', 'trace', 'circle'] }, target: { type: 'STRING' } },
+          required: ['type', 'target'],
+        },
+      },
+      {
+        name: 'procedure',
+        description: 'Track a step-by-step task.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            title: { type: 'STRING' },
+            current: { type: 'INTEGER' },
+            total: { type: 'INTEGER' },
+            done_when: { type: 'STRING' },
+            complete: { type: 'BOOLEAN' },
+            safety: { type: 'ARRAY', items: { type: 'STRING' } },
+          },
+          required: ['current'],
+        },
+      },
+      {
+        name: 'calc',
+        description: 'Submit your calculation for checking. Returns which steps are verified and the checked verdict.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            inputs: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  name: { type: 'STRING' },
+                  value: { type: 'NUMBER' },
+                  unit: { type: 'STRING' },
+                  label: { type: 'STRING' },
+                  est: { type: 'BOOLEAN' },
+                  adjustable: { type: 'OBJECT', properties: { min: { type: 'NUMBER' }, max: { type: 'NUMBER' } } },
+                },
+                required: ['name', 'value'],
+              },
+            },
+            steps: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  name: { type: 'STRING' },
+                  expr: { type: 'STRING', description: 'formula: numbers, earlier names, g, pi, + - * / ^ ( ), sqrt sin cos tan atan deg rad min max abs' },
+                  value: { type: 'NUMBER', description: 'your result' },
+                  unit: { type: 'STRING' },
+                  label: { type: 'STRING' },
+                },
+                required: ['name', 'expr', 'value'],
+              },
+            },
+            assumptions: { type: 'ARRAY', items: { type: 'STRING' } },
+            verdict: {
+              type: 'OBJECT',
+              properties: {
+                expr: { type: 'STRING', description: 'a NUMBER formula (no >, <, ==): > 0 means if_positive, e.g. "F_push - F_tip"' },
+                if_positive: { type: 'STRING' },
+                if_not: { type: 'STRING' },
+                claim: { type: 'STRING', enum: ['positive', 'not'] },
+              },
+            },
+          },
+          required: ['inputs', 'steps'],
+        },
+      },
+    ],
+  },
+];
+
+// The full session setup locked into the token.
+export function liveSetup() {
+  return {
+    model: `models/${LIVE_MODEL}`,
+    generationConfig: { responseModalities: ['AUDIO'], temperature: 0.4 },
+    systemInstruction: { parts: [{ text: LIVE_PROMPT }] },
+    tools: LIVE_TOOLS,
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+  };
+}
