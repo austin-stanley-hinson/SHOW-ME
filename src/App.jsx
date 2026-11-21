@@ -1,12 +1,33 @@
-// Placeholder shell. Camera, gyroscope and overlay come in later a/ branches.
+import { useEffect, useState } from 'react';
+import StartScreen from './ui/StartScreen.jsx';
+import CameraScreen from './ui/CameraScreen.jsx';
+import { openCamera, stopCamera, cameraErrorMessage } from './camera/camera.js';
+import { requestOrientationPermission } from './orientation/permission.js';
+
 export default function App() {
-  return (
-    <main className="start-screen">
-      <h1>Show Me</h1>
-      <p>Other AI assistants tell you. This one shows you.</p>
-      <button type="button" className="big-button" disabled>
-        Start
-      </button>
-    </main>
-  );
+  const [stream, setStream] = useState(null);
+  const [orientation, setOrientation] = useState('unknown');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => () => stopCamera(stream), [stream]);
+
+  async function handleStart() {
+    // iOS: the motion permission must be requested synchronously inside the tap.
+    const orientationPromise = requestOrientationPermission();
+    setBusy(true);
+    setMessage('');
+    try {
+      const s = await openCamera();
+      setOrientation(await orientationPromise);
+      setStream(s);
+    } catch (err) {
+      setMessage(cameraErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!stream) return <StartScreen onStart={handleStart} busy={busy} message={message} />;
+  return <CameraScreen stream={stream} orientation={orientation} />;
 }
