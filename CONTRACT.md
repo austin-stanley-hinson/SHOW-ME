@@ -1,7 +1,12 @@
-# Response Contract (v1)
+# Response Contract (v2)
 
 This is the one JSON shape that **Gemini must return** and that **the renderer must accept**.
-If you change it, change it here first and tell the other person.
+If you change it, change it here first, in its own PR, and get the other person's OK before merging.
+
+**Core rule: Gemini estimates, our code calculates.**
+Gemini supplies positions, *input* estimates (mass, distances), and the assumptions behind them.
+Every *derived* number (forces, moments, tensions) is computed by `physics.js` and inserted by the renderer.
+Gemini must never write a derived number anywhere in its output.
 
 ## Top-level object
 
@@ -9,14 +14,16 @@ If you change it, change it here first and tell the other person.
 {
   "answer": "string",
   "followup_question": "string or null",
+  "physics": { ... } or null,
   "draw": [ ...draw items... ]
 }
 ```
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `answer` | string | yes | Short spoken-style answer (1–3 sentences). Shown in the UI. |
+| `answer` | string | yes | Short spoken-style answer (1–3 sentences). Shown as the caption and optionally read aloud. May mention estimates ("about 5 kg"), never derived numbers ("49 N"). |
 | `followup_question` | string \| null | yes | A question the AI wants to ask the user, or `null`. |
+| `physics` | object \| null | yes | Inputs for our physics code. `null` when the question isn't a physics question. See below. |
 | `draw` | array | yes | Things to draw. Can be empty `[]`. Max 12 items. |
 
 No other top-level fields. No markdown, no code fences, no comments. Just the JSON.
@@ -31,15 +38,57 @@ All positions are **normalized image coordinates**: `[x, y]`, each a number from
 
 Example: `[0.5, 0.5]` is the center of the image.
 
+## Physics
+
+```json
+"physics": {
+  "model": "wall_mount",
+  "inputs": { "mass_kg": 5, "lever_arm_m": 0.10, "bolt_spacing_m": 0.08, "bolt_count": 2 },
+  "assumptions": ["Bookshelf speakers this size are usually 4–6 kg", "Center of mass is near the middle of the box"]
+}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `model` | string | yes | Which calculation to run. v2 supports only `wall_mount`. |
+| `inputs` | object | yes | Estimated input values for that model (numbers only, SI units in the key name). |
+| `assumptions` | string[] | yes | 1–4 short reasons behind the estimates. The renderer always shows these. |
+
+### Model `wall_mount`
+
+An object bolted to a wall through a bracket. Bolts are stacked vertically.
+
+| Input | Unit | Meaning |
+|---|---|---|
+| `mass_kg` | kg | Estimated mass of the object |
+| `lever_arm_m` | m | Horizontal distance from the wall to the center of mass |
+| `bolt_spacing_m` | m | Vertical distance between top and bottom bolt |
+| `bolt_count` | integer | Number of bolts |
+
+Computed by `physics.js` (g = 9.81 m/s²):
+
+| Quantity key | Formula | Unit |
+|---|---|---|
+| `weight` | W = m·g | N |
+| `shear_per_bolt` | W / bolt_count | N |
+| `moment` | M = W · lever_arm | N·m |
+| `top_bolt_tension` | T = M / bolt_spacing | N |
+| `wall_reaction` | equal to T (horizontal balance) | N |
+
+Any input key can also be used as a quantity (`mass_kg`, `lever_arm_m`, …). It is shown as an estimate.
+
+If `model` is unknown or an input is missing or not a positive number, the renderer draws everything **without** numbers and the panel shows the assumptions only. Never crash.
+
 ## Draw items
 
 Every item has these common fields:
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `type` | string | yes | One of `arrow`, `line`, `point`, `label`, `panel` |
+| `type` | string | yes | One of `arrow`, `line`, `point`, `label`, `step`, `panel` |
 | `id` | string | yes | Unique within this response, e.g. `"weight"`, `"bolt_top"` |
-| `label` | string | no | Short text shown next to the item (max ~30 chars) |
+| `label` | string | no | Short text shown next to the item (max ~30 chars). **No derived numbers.** |
+| `quantity` | string | no | A quantity key from the physics section. The renderer appends the value to the label. |
 | `color` | string | no | Hex color like `"#ff3b30"`. Renderer picks a default if missing. |
 
 Extra fields per type:
@@ -50,7 +99,17 @@ Extra fields per type:
 | `line` | `from: [x,y]`, `to: [x,y]` | Plain line, no head. Use for distances, edges, lever arms. |
 | `point` | `at: [x,y]` | A dot marking a spot (bolt, pivot, button). |
 | `label` | `at: [x,y]` | Text only, no shape. `label` is **required** for this type. |
-| `panel` | `at: [x,y]`, `text: string` | Floating text box. `label` is the panel title. `text` is the body (may use `\n` for new lines, max ~300 chars). |
+| `step` | `at: [x,y]`, `n: integer` | Numbered marker (1, 2, 3…) on a button or part. `label` is **required**: the instruction for that step ("Press Power"). |
+| `panel` | `at: [x,y]`, `text: string`, `content?: "physics"` | Floating text box. `label` is the title. `text` is plain explanation (may use `\n`, max ~300 chars, no derived numbers). With `"content": "physics"`, the renderer appends the worked math from `physics.js` and the assumptions below `text`. |
+
+### How `quantity` is displayed
+
+The renderer formats `label` + value from `physics.js`:
+
+- Derived quantity: `"W"` + `weight` → **`W = 49 N`**
+- Input estimate: `"d"` + `lever_arm_m` → **`d ≈ 0.10 m (est.)`**
+- No label: the quantity's own name is used → **`Top bolt tension = 61 N`**
+- No valid physics: the label is shown alone → **`W`**
 
 ### Suggested colors
 
@@ -60,14 +119,22 @@ Extra fields per type:
 | Support / reaction forces | `#34c759` (green) |
 | Tension / bolt forces | `#0a84ff` (blue) |
 | Geometry, distances | `#ffffff` (white) |
-| Highlights, "look here" | `#ffcc00` (yellow) |
+| Highlights, "look here", steps | `#ffcc00` (yellow) |
 
-## Renderer rules (for Austin)
+## Renderer rules (Austin)
 
 - Ignore items with an unknown `type` or missing required fields. Never crash.
 - Clamp coordinates to `0–1`.
 - If `id` repeats, keep the first one.
 - Draw in array order (later items on top).
+- Every number shown on screen comes from `physics.js`. Never parse numbers out of Gemini's text.
+- Estimated inputs are always marked `≈ … (est.)`, and the assumptions are always visible when physics is shown.
+- Draw `step` items in order of `n`, and also list the step instructions in the caption area so they're readable without looking at the markers.
+
+## Server rules (Gemini side)
+
+- Validate the response against this contract before returning it. If it's not valid JSON or required fields are missing, return an error status (not 200) with `{ "error": "..." }`. Never return half-valid JSON.
+- The prompt must tell Gemini: estimate inputs only, never compute forces, moments, or totals.
 
 ## Example 1: Speaker statics demo
 
@@ -75,68 +142,64 @@ User looks at a wall speaker from the side (wall on the left) and asks: *"Why is
 
 ```json
 {
-  "answer": "That's a bookshelf speaker on a wall bracket, about 5 kg. Its 49 N weight is held up by two bolts in shear, and because it sticks out from the wall, the top bolt is pulled while the bottom of the bracket pushes into the wall.",
+  "answer": "That's a bookshelf speaker on a wall bracket, about 5 kg. Two bolts hold its weight, and because it sticks out from the wall, the top bolt is pulled while the bottom of the bracket presses into the wall.",
   "followup_question": "Do you know what kind of wall it is: drywall, wood stud, or brick?",
+  "physics": {
+    "model": "wall_mount",
+    "inputs": { "mass_kg": 5, "lever_arm_m": 0.10, "bolt_spacing_m": 0.08, "bolt_count": 2 },
+    "assumptions": [
+      "Bookshelf speakers this size are usually 4–6 kg",
+      "Center of mass is near the middle of the box",
+      "Two bolts, one above the other, about 8 cm apart"
+    ]
+  },
   "draw": [
-    {
-      "type": "point",
-      "id": "center_of_mass",
-      "at": [0.62, 0.50],
-      "label": "Center of mass",
-      "color": "#ffffff"
-    },
-    {
-      "type": "arrow",
-      "id": "weight",
-      "from": [0.62, 0.50],
-      "to": [0.62, 0.78],
-      "label": "W = 49 N",
-      "color": "#ff3b30"
-    },
-    {
-      "type": "arrow",
-      "id": "bolt_shear",
-      "from": [0.30, 0.62],
-      "to": [0.30, 0.42],
-      "label": "Bolt shear 2 × 24.5 N",
-      "color": "#0a84ff"
-    },
-    {
-      "type": "arrow",
-      "id": "bolt_top_tension",
-      "from": [0.38, 0.40],
-      "to": [0.24, 0.40],
-      "label": "Top bolt pull ≈ 61 N",
-      "color": "#0a84ff"
-    },
-    {
-      "type": "arrow",
-      "id": "wall_reaction",
-      "from": [0.24, 0.60],
-      "to": [0.38, 0.60],
-      "label": "Wall push ≈ 61 N",
-      "color": "#34c759"
-    },
-    {
-      "type": "line",
-      "id": "lever_arm",
-      "from": [0.26, 0.50],
-      "to": [0.62, 0.50],
-      "label": "d ≈ 0.10 m",
-      "color": "#ffffff"
-    },
+    { "type": "point", "id": "center_of_mass", "at": [0.62, 0.50], "label": "Center of mass", "color": "#ffffff" },
+    { "type": "arrow", "id": "weight", "from": [0.62, 0.50], "to": [0.62, 0.78], "label": "W", "quantity": "weight", "color": "#ff3b30" },
+    { "type": "arrow", "id": "bolt_shear", "from": [0.30, 0.62], "to": [0.30, 0.42], "label": "Shear per bolt", "quantity": "shear_per_bolt", "color": "#0a84ff" },
+    { "type": "arrow", "id": "bolt_top_tension", "from": [0.38, 0.40], "to": [0.24, 0.40], "label": "Top bolt pull", "quantity": "top_bolt_tension", "color": "#0a84ff" },
+    { "type": "arrow", "id": "wall_reaction", "from": [0.24, 0.60], "to": [0.38, 0.60], "label": "Wall push", "quantity": "wall_reaction", "color": "#34c759" },
+    { "type": "line", "id": "lever_arm", "from": [0.26, 0.50], "to": [0.62, 0.50], "label": "d", "quantity": "lever_arm_m", "color": "#ffffff" },
     {
       "type": "panel",
       "id": "statics_math",
       "at": [0.70, 0.15],
       "label": "Why it stays up",
-      "text": "Mass ≈ 5 kg → W = 5 × 9.8 = 49 N\nUp: 2 bolts × 24.5 N = 49 N ✓\nTurning: M = W × d = 49 × 0.10 = 4.9 N·m\nBolt spacing 0.08 m → T = 4.9 / 0.08 ≈ 61 N\nTop bolt pulls in, wall pushes out at bottom.\nAll forces and moments balance → no motion."
+      "text": "The bolts carry the weight straight up.\nBecause the speaker sticks out, it tries to rotate down; the top bolt pulls and the wall pushes back to stop that.",
+      "content": "physics"
     }
   ]
 }
 ```
 
-## Example 2: Simple "where is it" question
+What the renderer shows in the panel (computed by `physics.js`, not Gemini):
+
+```
+Mass ≈ 5 kg (est.) → W = 5 × 9.81 = 49 N
+Up: 2 bolts × 24.5 N = 49 N ✓
+Turning: M = 49 × 0.10 = 4.9 N·m
+Top bolt: T = 4.9 / 0.08 = 61 N  ·  Wall push = 61 N
+Assumptions: Bookshelf speakers this size are usually 4–6 kg; …
+```
+
+## Example 2: "How do I use this?" (steps)
+
+User points at a laundry machine and asks: *"How do I start this?"*
+
+```json
+{
+  "answer": "Turn the dial to Normal, pick a temperature, then press Start.",
+  "followup_question": null,
+  "physics": null,
+  "draw": [
+    { "type": "step", "id": "dial", "at": [0.42, 0.35], "n": 1, "label": "Turn dial to Normal", "color": "#ffcc00" },
+    { "type": "step", "id": "temp", "at": [0.63, 0.36], "n": 2, "label": "Choose Warm or Cold", "color": "#ffcc00" },
+    { "type": "step", "id": "start", "at": [0.81, 0.38], "n": 3, "label": "Press Start", "color": "#ffcc00" }
+  ]
+}
+```
+
+## Example 3: Simple "where is it" question
 
 User looks at the back of a TV and asks: *"Which port is HDMI?"*
 
@@ -144,38 +207,22 @@ User looks at the back of a TV and asks: *"Which port is HDMI?"*
 {
   "answer": "The HDMI port is the wide, flat, trapezoid-shaped one on the left side of the panel.",
   "followup_question": null,
+  "physics": null,
   "draw": [
-    {
-      "type": "point",
-      "id": "hdmi_port",
-      "at": [0.31, 0.56],
-      "color": "#ffcc00"
-    },
-    {
-      "type": "arrow",
-      "id": "hdmi_pointer",
-      "from": [0.15, 0.30],
-      "to": [0.29, 0.53],
-      "label": "HDMI 1",
-      "color": "#ffcc00"
-    },
-    {
-      "type": "label",
-      "id": "usb_port",
-      "at": [0.55, 0.58],
-      "label": "USB (not HDMI)",
-      "color": "#ffffff"
-    }
+    { "type": "point", "id": "hdmi_port", "at": [0.31, 0.56], "color": "#ffcc00" },
+    { "type": "arrow", "id": "hdmi_pointer", "from": [0.15, 0.30], "to": [0.29, 0.53], "label": "HDMI 1", "color": "#ffcc00" },
+    { "type": "label", "id": "usb_port", "at": [0.55, 0.58], "label": "USB (not HDMI)", "color": "#ffffff" }
   ]
 }
 ```
 
-## Example 3: Nothing to draw
+## Example 4: Nothing to draw
 
 ```json
 {
   "answer": "I can't see anything clearly. Try moving closer and holding the phone still.",
   "followup_question": null,
+  "physics": null,
   "draw": []
 }
 ```
