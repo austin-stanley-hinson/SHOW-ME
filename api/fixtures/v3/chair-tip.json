@@ -1,0 +1,168 @@
+{
+  "answer": "It tips backward around the rear feet; about an 8 N push at the top does it.",
+  "followup_question": null,
+  "points": [
+    {
+      "id": "foot_rear",
+      "at": [
+        0.7,
+        0.84
+      ]
+    },
+    {
+      "id": "back_top",
+      "at": [
+        0.62,
+        0.21
+      ]
+    },
+    {
+      "id": "cg",
+      "at": [
+        0.5,
+        0.6
+      ]
+    }
+  ],
+  "calc": {
+    "inputs": [
+      {
+        "name": "m",
+        "value": 3.5,
+        "unit": "kg",
+        "label": "Chair mass",
+        "est": true
+      },
+      {
+        "name": "d",
+        "value": 0.18,
+        "unit": "m",
+        "label": "CG ahead of rear feet",
+        "est": true,
+        "measure": {
+          "kind": "horizontal",
+          "from": "foot_rear",
+          "to": "cg"
+        }
+      },
+      {
+        "name": "h",
+        "value": 0.75,
+        "unit": "m",
+        "label": "Push height",
+        "est": true,
+        "measure": {
+          "kind": "vertical",
+          "from": "foot_rear",
+          "to": "back_top"
+        }
+      },
+      {
+        "name": "F_push",
+        "value": 5,
+        "unit": "N",
+        "label": "Your push",
+        "est": false,
+        "adjustable": {
+          "min": 0,
+          "max": 50
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "W",
+        "expr": "m * g",
+        "value": 34.3,
+        "unit": "N",
+        "label": "Weight"
+      },
+      {
+        "name": "M",
+        "expr": "W * d",
+        "value": 6.17,
+        "unit": "N·m",
+        "label": "Restoring moment"
+      },
+      {
+        "name": "F_tip",
+        "expr": "M / h",
+        "value": 8.23,
+        "unit": "N",
+        "label": "Push to tip"
+      }
+    ],
+    "assumptions": [
+      "Typical folding chair mass",
+      "Pivot about the rear feet",
+      "Horizontal push at the top"
+    ],
+    "verdict": {
+      "expr": "F_push - F_tip",
+      "if_positive": "That push tips it over.",
+      "if_not": "That push won't tip it.",
+      "claim": "not"
+    }
+  },
+  "draw": [
+    {
+      "type": "arrow",
+      "id": "weight",
+      "from": "cg",
+      "to": [
+        0.5,
+        0.78
+      ],
+      "label": "W",
+      "quantity": "W",
+      "color": "#ff3b30"
+    },
+    {
+      "type": "arrow",
+      "id": "push",
+      "from": [
+        0.45,
+        0.21
+      ],
+      "to": "back_top",
+      "label": "Push to tip",
+      "quantity": "F_tip",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "circle",
+      "id": "pivot",
+      "at": "foot_rear",
+      "r": 0.03,
+      "label": "Pivot",
+      "color": "#34c759"
+    },
+    {
+      "type": "panel",
+      "id": "math",
+      "at": [
+        0.05,
+        0.08
+      ],
+      "label": "Why",
+      "text": "The weight holds it down around the rear feet; your push tries to rotate it back.",
+      "content": "calc"
+    }
+  ],
+  "narration": [
+    {
+      "say": "It pivots on these rear feet.",
+      "gesture": {
+        "type": "pulse",
+        "target": "pivot"
+      }
+    },
+    {
+      "say": "Push here, and about 8 newtons tips it.",
+      "gesture": {
+        "type": "trace",
+        "target": "push"
+      }
+    }
+  ]
+}

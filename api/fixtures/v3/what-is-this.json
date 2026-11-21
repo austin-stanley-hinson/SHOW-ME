@@ -1,0 +1,69 @@
+{
+  "answer": "It's a steel-frame folding chair with a plastic seat and backrest.",
+  "followup_question": "Want me to show you how it folds?",
+  "points": [
+    {
+      "id": "seat",
+      "at": [
+        0.43,
+        0.6
+      ]
+    },
+    {
+      "id": "hinge_left",
+      "at": [
+        0.6,
+        0.67
+      ]
+    },
+    {
+      "id": "cross_bar",
+      "at": [
+        0.5,
+        0.86
+      ]
+    }
+  ],
+  "calc": null,
+  "draw": [
+    {
+      "type": "circle",
+      "id": "c_hinge",
+      "at": "hinge_left",
+      "r": 0.04,
+      "color": "#ffcc00"
+    },
+    {
+      "type": "label",
+      "id": "l_bar",
+      "at": [
+        0.36,
+        0.9
+      ],
+      "label": "Cross brace"
+    }
+  ],
+  "narration": [
+    {
+      "say": "This is a standard folding chair.",
+      "gesture": {
+        "type": "point",
+        "target": "seat"
+      }
+    },
+    {
+      "say": "It folds on this rivet joint.",
+      "gesture": {
+        "type": "pulse",
+        "target": "c_hinge"
+      }
+    },
+    {
+      "say": "And this bar keeps the legs from spreading.",
+      "gesture": {
+        "type": "point",
+        "target": "l_bar"
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 // 200 -> contract JSON (CONTRACT.md).  4xx/5xx -> { error: "..." }.
 // The camera frame is never stored or logged.
 
-import { askGemini } from './_lib/gemini.js';
+import { askModel } from './_lib/model.js';
 
 // Gemini can take ~50 s under load; give the function room (Vercel caps by plan).
 export const maxDuration = 60;
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   if (image.length > MAX_IMAGE_CHARS) return res.status(413).json({ error: 'image too large' });
   if (typeof question !== 'string' || !question.trim()) return res.status(400).json({ error: 'missing question' });
 
-  const result = await askGemini(image.replace(/^data:image\/\w+;base64,/, ''), question.slice(0, 500), previous);
+  const result = await askModel(image.replace(/^data:image\/\w+;base64,/, ''), question.slice(0, 500), previous);
   if (!result.ok) {
     console.error('ask failed:', result.error); // error text only, never the image
     return res.status(result.status || (result.error === 'timed out' ? 504 : 502)).json({ error: result.error });
