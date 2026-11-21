@@ -8,7 +8,7 @@ import { askModel } from './_lib/model.js';
 export const maxDuration = 60;
 
 const MAX_AUDIO_CHARS = 1_400_000; // ~1 MB of audio, ~60 s of compressed speech
-const AUDIO_MIME = /^audio/(mp4|m4a|x-m4a|aac|mpeg|mp3|wav|x-wav|webm|ogg)(;.*)?$/;
+const AUDIO_MIME = /^audio\/(mp4|m4a|x-m4a|aac|mpeg|mp3|wav|x-wav|webm|ogg)(;.*)?$/;
 const MAX_IMAGE_CHARS = 2_800_000; // Vercel body limit is ~4.5 MB; keep frames ~1024px JPEG.
 
 export default async function handler(req, res) {
