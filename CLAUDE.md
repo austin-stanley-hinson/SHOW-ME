@@ -27,7 +27,7 @@ Each lane owns certain files. **Only edit files your lane owns.** If you need a 
 | Lane | Owner | Files |
 |---|---|---|
 | **A: Client / Renderer** | Austin | `src/camera/`, `src/orientation/`, `src/overlay/` (three.js), `src/ui/`, `src/App.jsx`, `src/main.jsx`, `index.html`, `src/styles/` |
-| **B: Server / Gemini / Math** | Josh | `api/` (server endpoint, model providers, prompt), `server/` (session relay on Vultr), `src/physics/`, `src/client/askApi.js` + `src/client/session.js` |
+| **B: Server / Gemini / Math** | Josh | `api/` (server endpoint, model providers, prompt), `server/` (session relay on Vultr), `src/physics/`, `src/client/` (askApi, session, view, narrator, guide) |
 | **Shared (both must agree)** | both | `CONTRACT.md`, `package.json`, `package-lock.json`, `vite.config.js`, `vercel.json`, `.gitignore`, `CLAUDE.md`, `README.md` |
 
 Rules for shared files:
