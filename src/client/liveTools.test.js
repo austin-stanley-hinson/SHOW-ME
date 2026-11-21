@@ -34,7 +34,7 @@ test('live setup is complete enough to lock into a token', () => {
   const s = liveSetup();
   assert.match(s.model, /^models\//);
   assert.deepEqual(s.generationConfig.responseModalities, ['AUDIO']);
-  assert.deepEqual(s.tools[0].functionDeclarations.map((f) => f.name), ['show', 'remove', 'gesture', 'procedure', 'calc']);
+  assert.deepEqual(s.tools[0].functionDeclarations.map((f) => f.name), ['show', 'remove', 'gesture', 'procedure', 'wait', 'calc']);
 });
 
 test('precise points: targets for new spots, refine snaps them', () => {
@@ -146,4 +146,13 @@ test('rotate: curved arrow for twisting; snapped like a circle; push-to-talk set
   const { liveSetup } = await import('../../api/_lib/live.js');
   assert.equal(liveSetup().realtimeInputConfig, undefined);
   assert.deepEqual(liveSetup({ pushToTalk: true }).realtimeInputConfig, { automaticActivityDetection: { disabled: true } });
+});
+
+test('wait: the model has nothing to say (hands-free auto-check)', async () => {
+  const t = createLiveTools();
+  const r = t.handle({ name: 'wait', args: { seen: 'The seat is still down.' } });
+  assert.deepEqual(r.update, { wait: { seen: 'The seat is still down.' } });
+  const { liveSetup } = await import('../../api/_lib/live.js');
+  const w = liveSetup().tools[0].functionDeclarations.find((f) => f.name === 'wait');
+  assert.equal(w.behavior, 'NON_BLOCKING');
 });

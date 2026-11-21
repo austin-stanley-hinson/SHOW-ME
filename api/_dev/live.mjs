@@ -30,9 +30,27 @@ log('token ok, model', token.model);
 const tools = createLiveTools();
 const ws = new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(token.token)}`);
 let said = '';
+// AUTOCHECKS=n: after the questions, send n "[auto-check]" turns (like live.watch(true)) and report whether
+// the model stays quiet (calls wait) when the step isn't done.
+let autochecks = Number(process.env.AUTOCHECKS || 0);
+let step = null;
+let waitCalled = false;
 let audio = 0;
 let q = 0;
 let frames;
+function nextTurn() {
+  if (++q < questions.length) return ask();
+  if (autochecks-- > 0 && step) {
+    waitCalled = false;
+    const check = `[auto-check] Step ${step.current}${step.total ? ' of ' + step.total : ''}${step.done_when ? ': done when ' + step.done_when : ''}.`;
+    log('AUTO-CHECK:', check);
+    ws.send(JSON.stringify({ realtimeInput: { text: check } }));
+    clearTimeout(globalThis.__next);
+    globalThis.__next = setTimeout(() => (log(waitCalled ? '   -> quiet (wait called, nothing said)' : '   -> no reply'), nextTurn()), 9000);
+    return;
+  }
+  ws.close();
+}
 const ask = () => {
   log('YOU:', questions[q]);
   ws.send(JSON.stringify({ realtimeInput: { text: questions[q] } }));
@@ -53,7 +71,8 @@ ws.onmessage = async (ev) => {
       log(`TOOL ${fc.name}`, JSON.stringify(fc.args).slice(0, 220));
       if (update?.scene) log('   on screen:', update.scene.items.map((i) => `${i.type}:${i.id}@${JSON.stringify(i.at || [i.from, i.to])}${i.label ? ` "${i.label}"` : ''}`).join('  '));
       if (update?.gesture) log('   GESTURE', update.gesture.type, '→', update.gesture.target);
-      if (update?.procedure) log('   PROCEDURE', JSON.stringify(update.procedure));
+      if (update?.procedure) (log('   PROCEDURE', JSON.stringify(update.procedure)), (step = update.procedure));
+      if (fc.name === 'wait') (waitCalled = true), log('   WAIT', JSON.stringify(fc.args));
       if (update?.calc) for (const l of update.calc.result.lines) log('   CALC', l);
       if (response.error || response.dropped) log('   tool response:', JSON.stringify(response));
       if (fc.name === 'show') {
@@ -71,7 +90,9 @@ ws.onmessage = async (ev) => {
       }
       return { id: fc.id, name: fc.name, response };
     });
-    ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
+    // wait is non-blocking: replying to it restarts generation (it loops), so it gets no reply.
+    const replies = responses.filter((r) => r.name !== 'wait');
+    if (replies.length) ws.send(JSON.stringify({ toolResponse: { functionResponses: replies } }));
   }
   const sc = m.serverContent;
   if (sc && process.env.LIVE_DEBUG) log('  sc keys:', Object.keys(sc).join(','), sc.outputTranscription ? JSON.stringify(sc.outputTranscription).slice(0, 80) : '');
@@ -82,13 +103,17 @@ ws.onmessage = async (ev) => {
     }
     if (sc.groundingMetadata) log('   SEARCHED:', JSON.stringify(sc.groundingMetadata.webSearchQueries || sc.groundingMetadata).slice(0, 160));
     if (sc.outputTranscription?.text) said += sc.outputTranscription.text;
+    if (sc.turnComplete && !(said || audio)) {
+      clearTimeout(globalThis.__next);
+      globalThis.__next = setTimeout(nextTurn, 9000);
+    }
     if (sc.turnComplete && (said || audio)) {
-      log(`GEMINI SAID (${Math.round((audio * 3) / 4 / 48000)} s of audio):`, JSON.stringify(said.trim()));
+      log(`GEMINI SAID (${Math.round((audio * 3) / 4 / 48000)} s of audio)${waitCalled ? ' [wait was called: the app would DROP this]' : ''}:`, JSON.stringify(said.trim()));
       said = '';
       audio = 0;
       // The model may keep going in another turn (e.g. after searching): wait for quiet before moving on.
       clearTimeout(globalThis.__next);
-      globalThis.__next = setTimeout(() => (++q < questions.length ? ask() : ws.close()), 9000);
+      globalThis.__next = setTimeout(nextTurn, 9000);
     }
   }
   if (m.goAway) log('goAway', JSON.stringify(m.goAway));
@@ -98,4 +123,4 @@ ws.onclose = (e) => {
   log('closed', e.code, (e.reason || '').slice(0, 160));
   process.exit(0);
 };
-setTimeout(() => (log('timeout'), process.exit(1)), 25_000 * questions.length + 15_000);
+setTimeout(() => (log('timeout'), process.exit(1)), 25_000 * questions.length + 15_000 + 12_000 * Number(process.env.AUTOCHECKS || 0));
