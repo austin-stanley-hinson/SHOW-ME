@@ -68,8 +68,14 @@ function draw(now) {
   g2d.setTransform(dpr, 0, 0, dpr, 0, 0);
   g2d.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   const r = frameRect();
+  // Positions follow the real spots as the phone moves (tracker inside live.js).
+  if (live) {
+    scene = live.trackedScene();
+    $('status').dataset.track = scene.tracking.lost ? ' · tracking lost' : '';
+  }
 
   for (const it of scene.items) {
+    g2d.globalAlpha = it.stale ? 0.35 : 1; // faded = not anchored to the current view
     const color = it.color || '#ffcc00';
     const g = gestures.get(it.id) || Object.values(it.refs || {}).map((id) => gestures.get(id)).find(Boolean);
     const active = Boolean(g && g.until > now);
@@ -161,9 +167,7 @@ $('go').onclick = async () => {
     await openCamera();
     live = await startLive({
       video,
-      onScene: (s) => {
-        scene = s;
-      },
+      onScene: () => {},
       onGesture: (g) => {
         const t = performance.now();
         gestures.set(g.target, { ...g, start: t, until: t + 2500 });
@@ -180,7 +184,7 @@ $('go').onclick = async () => {
         $('heard').textContent = 'You: ' + t;
       },
       onStatus: (s) => {
-        $('status').textContent = s;
+        $('status').textContent = s + ($('status').dataset.track || '');
       },
       onError: (e) => {
         $('status').textContent = e.message;

@@ -12,14 +12,18 @@
 //     onStatus: (s) => setStatus(s),                 // 'connecting' | 'live' | 'speaking' | 'listening' | 'closed' | 'error: ...'
 //   });                                              // MUST be called from a user tap (iOS audio rules)
 //   live.say('typed question');  live.mute(true);  live.stop();
+//   live.trackedScene()   // call every animation frame: the scene with positions moved to where those spots
+//                         // are NOW in the camera view (optical-flow tracking); items get stale: true if lost.
 
 import { createLiveTools } from './liveTools.js';
+import { createTracker, grabGray } from '../tracking/tracker.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
 const FRAME_MAX_SIDE = 768;
 const MIC_RATE = 16000;
 const OUT_RATE = 24000;
+const TRACK_MS = 66; // ~15 fps tracking
 
 // AudioWorklet that forwards raw mic samples to the main thread.
 const WORKLET = `class Tap extends AudioWorkletProcessor {
@@ -64,6 +68,54 @@ export async function startLive(opts) {
   const { token } = await tokenRes.json();
 
   const tools = createLiveTools();
+
+  // ---- tracking: keep drawings on the real spots as the phone moves ----
+  const tracker = createTracker();
+  const grayCanvas = document.createElement('canvas');
+  let lastSentFrameId = -1;
+  let trackTimer = null;
+  const anchors = new Map(); // item object / point id -> { field: refCoords }
+  function trackOnce() {
+    const g = grabGray(video, grayCanvas, 320);
+    if (g) tracker.push(g.gray, g.w, g.h);
+  }
+  // New or replaced items/points are anchored to the frame Gemini last saw.
+  function anchorScene(scene) {
+    const live = new Set();
+    for (const p of scene.points) {
+      const key = 'pt:' + p.id;
+      live.add(key);
+      const prev = anchors.get(key);
+      if (!prev || prev.src !== p) anchors.set(key, { src: p, at: tracker.toRef(p.at, lastSentFrameId) });
+    }
+    for (const it of scene.items) {
+      live.add(it);
+      if (anchors.has(it)) continue;
+      const a = { src: it };
+      for (const f of ['at', 'from', 'to']) if (Array.isArray(it[f])) a[f] = tracker.toRef(it[f], lastSentFrameId);
+      anchors.set(it, a);
+    }
+    for (const k of anchors.keys()) if (!live.has(k)) anchors.delete(k);
+  }
+  function trackedScene() {
+    const scene = tools.scene;
+    const stale = tracker.lost;
+    const pos = (ref, fallback) => (stale ? fallback : tracker.fromRef(ref) ?? fallback);
+    const points = scene.points.map((p) => ({ ...p, at: pos(anchors.get('pt:' + p.id)?.at, p.at) }));
+    const items = scene.items.map((it) => {
+      const a = anchors.get(it) || {};
+      const out = { ...it };
+      let anchored = true;
+      for (const f of ['at', 'from', 'to']) {
+        if (!Array.isArray(it[f])) continue;
+        if (!a[f]) anchored = false; // placed before the tracker restarted
+        out[f] = pos(a[f], it[f]);
+      }
+      if (stale || !anchored) out.stale = true;
+      return out;
+    });
+    return { items, points, tracking: { quality: tracker.quality, lost: tracker.lost } };
+  }
   const ws = new WebSocket(`${WS_URL}?access_token=${encodeURIComponent(token)}`);
   let closed = false;
   let muted = false;
@@ -105,6 +157,12 @@ export async function startLive(opts) {
   const frameCanvas = document.createElement('canvas');
   function sendFrame() {
     if (!video.videoWidth) return;
+    trackOnce(); // the tracker's newest frame == the frame Gemini is about to see
+    lastSentFrameId = tracker.latestId;
+    if (tracker.lost) {
+      tracker.reset(); // scene was lost: start a fresh reference from here
+      anchors.clear();
+    }
     const scale = Math.min(1, FRAME_MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
     frameCanvas.width = Math.round(video.videoWidth * scale);
     frameCanvas.height = Math.round(video.videoHeight * scale);
@@ -153,13 +211,17 @@ export async function startLive(opts) {
       status('live');
       sendFrame();
       frameTimer = setInterval(sendFrame, FRAME_MS);
+      trackTimer = setInterval(trackOnce, TRACK_MS);
       startMic().catch((e) => onError(new Error('microphone: ' + e.message)));
       return;
     }
     if (m.toolCall) {
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
         const { response, update } = tools.handle(fc);
-        if (update?.scene) onScene?.(update.scene);
+        if (update?.scene) {
+          anchorScene(update.scene);
+          onScene?.(update.scene);
+        }
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) onProcedure?.(update.procedure);
         if (update?.calc) onCalc?.(update.calc);
@@ -195,6 +257,7 @@ export async function startLive(opts) {
 
   function cleanup() {
     clearInterval(frameTimer);
+    clearInterval(trackTimer);
     stopPlayback();
     micNode?.disconnect();
     micStream?.getTracks().forEach((t) => t.stop());
@@ -210,6 +273,7 @@ export async function startLive(opts) {
     get scene() {
       return tools.scene;
     },
+    trackedScene,
     stop() {
       if (closed) return;
       ws.close(1000);
