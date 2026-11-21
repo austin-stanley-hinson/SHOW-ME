@@ -222,6 +222,7 @@ export function createTracker() {
   const LOCAL_RADIUS = 0.2; // of frame width
   const NEAR_HALF = 0.1; // half-size of the box of extra features around each anchor (of width)
   let pairs = null; // feature pairs from the previous frame to this one
+  let motion = 0; // px the view moved in the last frame (Infinity = couldn't tell)
   let C = IDENTITY; // reference (pixel coords of the first frame) -> current frame pixels
   let nextId = 0;
   const ring = new Map(); // id -> { C, w, h }
@@ -263,6 +264,8 @@ export function createTracker() {
           bad = 0;
         } else if (++bad > 8) lost = true; // ~0.5 s of nothing usable
         pairs = { P, Q, T: ok ? fit.T : null };
+        // How far the image center moved this frame: big jumps (fast swings, blur) break optical flow.
+        motion = ok ? Math.hypot(...((c) => [c[0] - w / 2, c[1] - h / 2])(apply(fit.T, [w / 2, h / 2]))) : Infinity;
         for (const a of anchors) {
           const r = stepLocal(a.pos, pairs, pairs.T, LOCAL_RADIUS * w);
           a.pos = r.pos;
@@ -291,6 +294,9 @@ export function createTracker() {
     },
     get latestId() {
       return nextId - 1;
+    },
+    get motion() {
+      return motion;
     },
     get quality() {
       return quality;

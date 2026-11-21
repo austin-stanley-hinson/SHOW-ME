@@ -56,7 +56,10 @@ function toPcm16(float32, fromRate) {
 export async function startLive(opts) {
   const { video, onScene, onGesture, onProcedure, onCalc, onSaid, onHeard, onStatus = () => {}, onError = () => {} } = opts;
   const log = createDebugLog();
+  let lastStatus = null;
   const status = (s) => {
+    if (s === lastStatus) return; // audio chunks would otherwise repeat "speaking" dozens of times
+    lastStatus = s;
     log.event('status', s);
     onStatus(s);
   };
@@ -76,7 +79,19 @@ export async function startLive(opts) {
   // ---- tracking: keep drawings on the real spots as the phone moves (src/tracking/sceneTracker.js) ----
   const st = createSceneTracker(video);
   let lastSentFrameId = -1;
-  const trackedScene = () => st.current(tools.scene);
+  // Re-finding: optical flow can't recover after a fast swing or when the object leaves the view, so
+  // every few seconds the precise model re-locates each labelled thing on the newest frame. Things it
+  // can't find are hidden instead of left on the wrong spot; they come back when they're in view again.
+  const RESNAP_MS = 2500;
+  const snapTargets = new Map(); // id -> label
+  const hidden = new Set(); // ids not visible right now (or unsure after a big motion)
+  let resnapBusy = false;
+  let calmSince = 0;
+  const trackedScene = () => {
+    const s = st.current(tools.scene);
+    if (!hidden.size) return s;
+    return { ...s, items: s.items.map((i) => (hidden.has(i.id) || Object.values(i.refs || {}).some((r) => hidden.has(r)) ? { ...i, stale: true, hidden: true } : i)) };
+  };
   const sentFrames = new Map(); // frameId -> base64 JPEG (last few), for precise-point lookups
 
   // Precise placement: ask /api/point where exactly each new thing is on the SAME frame, then snap to it.
@@ -88,7 +103,11 @@ export async function startLive(opts) {
       const r = await fetch('/api/point', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, targets }) });
       const j = await r.json();
       log.event('refine', { frameId, targets, result: j, ms: Date.now() - t });
-      if (!r.ok || !j.points?.length || closed) return;
+      if (!r.ok || closed) return;
+      for (const tg of targets) snapTargets.set(tg.id, tg.label);
+      const found = new Set((j.points || []).map((p) => p.id));
+      for (const tg of targets) (found.has(tg.id) ? hidden.delete(tg.id) : hidden.add(tg.id));
+      if (!j.points?.length) return;
       const scene = tools.refine(j.points);
       st.place(scene, frameId);
       onScene?.(scene);
@@ -138,15 +157,19 @@ export async function startLive(opts) {
   function sendFrame() {
     if (!video.videoWidth) return;
     lastSentFrameId = st.mark(); // the tracker's frame == the frame Gemini is about to see
+    sendFrameImage(lastSentFrameId);
+  }
+  function sendFrameImage(frameId) {
+    if (!video.videoWidth) return;
     const scale = Math.min(1, FRAME_MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
     frameCanvas.width = Math.round(video.videoWidth * scale);
     frameCanvas.height = Math.round(video.videoHeight * scale);
     frameCanvas.getContext('2d').drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
     const data = frameCanvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     send({ realtimeInput: { video: { data, mimeType: 'image/jpeg' } } });
-    sentFrames.set(lastSentFrameId, data);
+    sentFrames.set(frameId, data);
     if (sentFrames.size > 6) sentFrames.delete(sentFrames.keys().next().value);
-    log.frame(lastSentFrameId, data);
+    log.frame(frameId, data);
   }
 
   // ---- microphone ----
@@ -244,6 +267,8 @@ export async function startLive(opts) {
 
   function cleanup() {
     clearInterval(sampleTimer);
+    clearInterval(resnapTimer);
+    clearInterval(motionTimer);
     clearInterval(frameTimer);
     st.stop();
     stopPlayback();
@@ -252,6 +277,40 @@ export async function startLive(opts) {
   }
 
   // Sample where the tracker shows each drawing, twice a second, for the debug report.
+  // Periodic re-snap, plus an immediate one once the phone steadies after a big motion.
+  async function resnap() {
+    if (resnapBusy || closed || !snapTargets.size) return;
+    const s = trackedScene();
+    const live = new Set([...s.items.map((i) => i.id), ...s.points.map((p) => p.id)]);
+    for (const id of snapTargets.keys()) if (!live.has(id)) snapTargets.delete(id);
+    if (!snapTargets.size) return;
+    const where = (id) => s.points.find((p) => p.id === id)?.at || s.items.find((i) => i.id === id)?.at || s.items.find((i) => i.id === id)?.to;
+    const targets = [...snapTargets].map(([id, label]) => ({ id, label, ...(Array.isArray(where(id)) && !hidden.has(id) && { at: where(id) }) }));
+    resnapBusy = true;
+    try {
+      lastSentFrameId = st.mark();
+      sendFrameImage(lastSentFrameId); // a fresh frame for the lookup (also seen by the model)
+      await refinePositions(lastSentFrameId, targets);
+    } finally {
+      resnapBusy = false;
+    }
+  }
+  const resnapTimer = setInterval(resnap, RESNAP_MS);
+  const motionTimer = setInterval(() => {
+    const m = st.tracker.motion;
+    if (m > 18) {
+      // Fast swing: flow is unreliable. Hide everything until it's re-found.
+      if (!calmSince) log.event('big-motion', Math.round(m));
+      for (const id of snapTargets.keys()) hidden.add(id);
+      calmSince = -1;
+    } else if (calmSince === -1 && m < 4) {
+      calmSince = Date.now();
+    } else if (calmSince > 0 && Date.now() - calmSince > 300) {
+      calmSince = 0;
+      resnap();
+    }
+  }, 100);
+
   const sampleTimer = setInterval(() => {
     const s = trackedScene();
     if (!s.items.length) return;

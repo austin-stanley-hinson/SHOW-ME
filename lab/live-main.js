@@ -10,6 +10,8 @@ const g2d = canvas.getContext('2d');
 let live = null;
 let scene = { items: [], points: [] };
 let calcResult = null;
+let heardText = '';
+let heardDone = true;
 const gestures = new Map(); // target id -> { type, start, until }
 
 // Contract [x, y] 0-1 of the full video frame -> canvas pixels (video uses object-fit: contain).
@@ -82,6 +84,7 @@ function draw(now) {
   }
 
   for (const it of scene.items) {
+    if (it.hidden) continue; // not in view right now: re-found automatically when it is
     g2d.globalAlpha = it.stale ? 0.35 : 1; // faded = not anchored to the current view
     const color = it.color || '#ffcc00';
     const g = gestures.get(it.id) || Object.values(it.refs || {}).map((id) => gestures.get(id)).find(Boolean);
@@ -185,11 +188,15 @@ $('go').onclick = async () => {
         calcResult = result;
         $('math').textContent = result.lines.join('\n') + (result.verdict ? `\n→ ${result.verdict.text}` : '');
       },
-      onSaid: (t) => {
+      onSaid: (t, final) => {
         $('said').textContent = t;
+        if (final) heardDone = true;
       },
       onHeard: (t) => {
-        $('heard').textContent = 'You: ' + t;
+        // Transcripts arrive in fragments: join them into one line per turn.
+        heardText = heardDone ? t.trim() : (heardText + ' ' + t).trim();
+        heardDone = false;
+        $('heard').textContent = 'You: ' + heardText;
       },
       onStatus: (s) => {
         $('status').textContent = s + ($('status').dataset.track || '');

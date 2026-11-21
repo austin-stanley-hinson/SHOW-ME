@@ -23,6 +23,11 @@ const NEEDS = { arrow: ['from', 'to'], line: ['from', 'to'], point: ['at'], circ
 
 function withPointRefs(item, pointIds) {
   const out = { ...item };
+  // An arrow with only a tip ("point at the keys"): add a tail up-left of it instead of rejecting it.
+  if (out.type === 'arrow' && out.from === undefined && out.from_point === undefined) {
+    const tip = Array.isArray(out.to) ? out.to : null; // [y, x] 0-1000
+    if (tip) out.from = [Math.max(0, tip[0] - 120), Math.max(0, tip[1] - 120)];
+  }
   if (out.type === 'circle' && !(Number.isFinite(out.r) && out.r > 0)) out.r = 45; // live: default ring size (0-1000 units)
   for (const [ref, field] of POS_REFS) {
     if (typeof out[ref] === 'string' && out[ref]) out[field] = out[ref];

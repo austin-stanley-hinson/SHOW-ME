@@ -58,3 +58,12 @@ test('precise points: a pointing arrow with a numeric tip is snapped by moving t
   assert.deepEqual(a.to, [0.53, 0.5]);
   assert.ok(Math.abs(a.from[0] - 0.53) < 1e-9 && Math.abs(a.from[1] - 0.56) < 1e-9); // same shape, shifted
 });
+
+test('an arrow with only a tip gets a tail instead of being rejected', () => {
+  const t = createLiveTools();
+  const r = t.handle({ name: 'show', args: { items: [{ type: 'arrow', id: 'keys', to: [510, 150], label: 'car keys' }] } });
+  assert.deepEqual(r.response.shown, ['keys']);
+  const a = t.scene.items[0];
+  assert.deepEqual(a.to, [0.15, 0.51]);
+  assert.deepEqual(a.from, [0.03, 0.39]);
+});
