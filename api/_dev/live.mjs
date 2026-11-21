@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import handler from '../live-token.js';
+import pointHandler from '../point.js';
 import { createLiveTools } from '../../src/client/liveTools.js';
 
 const [framePath, ...questions] = process.argv.slice(2);
@@ -44,6 +45,8 @@ ws.onmessage = async (ev) => {
     frames = setInterval(() => ws.send(JSON.stringify({ realtimeInput: { video: { data: frame, mimeType: 'image/jpeg' } } })), 1000);
     setTimeout(ask, 2500);
   }
+  if (m.toolCall) clearTimeout(globalThis.__next);
+  if (m.serverContent?.modelTurn) clearTimeout(globalThis.__next);
   if (m.toolCall) {
     const responses = m.toolCall.functionCalls.map((fc) => {
       const { response, update } = tools.handle(fc);
@@ -53,6 +56,19 @@ ws.onmessage = async (ev) => {
       if (update?.procedure) log('   PROCEDURE', JSON.stringify(update.procedure));
       if (update?.calc) for (const l of update.calc.result.lines) log('   CALC', l);
       if (response.error || response.dropped) log('   tool response:', JSON.stringify(response));
+      if (fc.name === 'show') {
+        const targets = tools.targetsFor(response.shown || [], (fc.args?.points || []).map((p) => p?.id).filter(Boolean));
+        if (targets.length) {
+          const t1 = Date.now();
+          const res = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(b) {
+            if (b.points) {
+              const s = tools.refine(b.points);
+              log(`   PRECISE (${Date.now() - t1} ms):`, b.points.map((p) => `${p.id} ${JSON.stringify(targets.find((x) => x.id === p.id)?.at)} -> ${JSON.stringify(p.at)}`).join('  '));
+            } else log('   precise failed:', JSON.stringify(b));
+          } };
+          pointHandler({ method: 'POST', body: { image: frame, targets } }, res);
+        }
+      }
       return { id: fc.id, name: fc.name, response };
     });
     ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
@@ -60,14 +76,19 @@ ws.onmessage = async (ev) => {
   const sc = m.serverContent;
   if (sc && process.env.LIVE_DEBUG) log('  sc keys:', Object.keys(sc).join(','), sc.outputTranscription ? JSON.stringify(sc.outputTranscription).slice(0, 80) : '');
   if (sc) {
-    for (const p of sc.modelTurn?.parts || []) if (p.inlineData) audio += p.inlineData.data.length;
+    for (const p of sc.modelTurn?.parts || []) {
+      if (p.inlineData) audio += p.inlineData.data.length;
+      if (p.executableCode || p.codeExecutionResult) log('   (model ran code)');
+    }
+    if (sc.groundingMetadata) log('   SEARCHED:', JSON.stringify(sc.groundingMetadata.webSearchQueries || sc.groundingMetadata).slice(0, 160));
     if (sc.outputTranscription?.text) said += sc.outputTranscription.text;
     if (sc.turnComplete && (said || audio)) {
       log(`GEMINI SAID (${Math.round((audio * 3) / 4 / 48000)} s of audio):`, JSON.stringify(said.trim()));
       said = '';
       audio = 0;
-      if (++q < questions.length) setTimeout(ask, 1500);
-      else setTimeout(() => ws.close(), 500);
+      // The model may keep going in another turn (e.g. after searching): wait for quiet before moving on.
+      clearTimeout(globalThis.__next);
+      globalThis.__next = setTimeout(() => (++q < questions.length ? ask() : ws.close()), 9000);
     }
   }
   if (m.goAway) log('goAway', JSON.stringify(m.goAway));

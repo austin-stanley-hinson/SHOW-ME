@@ -15,7 +15,7 @@
 const MAX_FEATURES = 60;
 const GRID = [8, 6];
 const WIN = 7; // half window -> 15x15
-const LEVELS = 3;
+const LEVELS = 4; // 4 pyramid levels: follows ~2x faster motion between frames than 3
 const ITERS = 8;
 const RING = 90; // frames of history (~6 s at 15 fps)
 
@@ -46,6 +46,51 @@ function sample(L, x, y) {
 }
 
 // ---------- features: best "min eigenvalue" corner in each grid cell ----------
+// Best corner in a box [x0, x1) x [y0, y1); returns [x, y, score] or null.
+function bestCorner(L, x0, x1, y0, y1) {
+  const { img, w, h } = L;
+  let best = 0, bx = -1, by = -1;
+  for (let y = Math.max(WIN + 1, y0); y < Math.min(h - WIN - 1, y1); y += 2) {
+    for (let x = Math.max(WIN + 1, x0); x < Math.min(w - WIN - 1, x1); x += 2) {
+      let sxx = 0, syy = 0, sxy = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const i = (y + dy) * w + x + dx;
+          const ix = img[i + 1] - img[i - 1], iy = img[i + w] - img[i - w];
+          sxx += ix * ix; syy += iy * iy; sxy += ix * iy;
+        }
+      }
+      const tr = sxx + syy, det = sxx * syy - sxy * sxy;
+      const minEig = tr / 2 - Math.sqrt(Math.max(0, (tr * tr) / 4 - det));
+      if (minEig > best) (best = minEig), (bx = x), (by = y);
+    }
+  }
+  return bx >= 0 && best > 50 ? [bx, by, best] : null;
+}
+
+// Extra features around each anchor (pixel positions): a 4x4 grid of cells in a box around it, so the
+// object being annotated has its own spots to follow (not just the background).
+export function featuresNear(L, centers, half, max = 64) {
+  const out = [];
+  // Many anchors sit close together (one object): spread the budget, nearest-first per anchor.
+  const per = Math.max(4, Math.floor(max / Math.max(1, centers.length)));
+  const step = (2 * half) / 4;
+  for (const [cx, cy] of centers) {
+    const mine = [];
+    for (let j = 0; j < 4; j++) {
+      for (let i = 0; i < 4; i++) {
+        const x0 = Math.round(cx - half + i * step), y0 = Math.round(cy - half + j * step);
+        const c = bestCorner(L, x0, Math.round(x0 + step), y0, Math.round(y0 + step));
+        if (c) mine.push([c[0], c[1], Math.hypot(c[0] - cx, c[1] - cy)]);
+      }
+    }
+    mine.sort((p, q) => p[2] - q[2]);
+    for (const p of mine.slice(0, per)) out.push([p[0], p[1]]);
+    if (out.length >= max) break;
+  }
+  return out.slice(0, max);
+}
+
 export function findFeatures(L, max = MAX_FEATURES) {
   const { img, w, h } = L;
   const [gx, gy] = GRID;
@@ -157,8 +202,27 @@ export function robustSimilarity(P, Q) {
 }
 
 // ---------- the tracker ----------
+// Move a pixel position one frame using the feature pairs near it (local motion), else the global fit.
+function stepLocal(pos, pairs, globalT, radius) {
+  const P = [], Q = [];
+  for (let i = 0; i < pairs.P.length; i++) {
+    const p = pairs.P[i];
+    if (Math.hypot(p[0] - pos[0], p[1] - pos[1]) <= radius) (P.push(p), Q.push(pairs.Q[i]));
+  }
+  if (P.length >= 6) {
+    const fit = robustSimilarity(P, Q);
+    if (fit && fit.inliers >= 5) return { pos: apply(fit.T, pos), local: true };
+  }
+  return { pos: globalT ? apply(globalT, pos) : pos, local: false };
+}
+
 export function createTracker() {
   let prev = null; // { pyr, w, h, feats }
+  const anchors = new Set(); // { pos: [px, py], weak }
+  const LOCAL_RADIUS = 0.2; // of frame width
+  const NEAR_HALF = 0.1; // half-size of the box of extra features around each anchor (of width)
+  let pairs = null; // feature pairs from the previous frame to this one
+  let motion = 0; // px the view moved in the last frame (Infinity = couldn't tell)
   let C = IDENTITY; // reference (pixel coords of the first frame) -> current frame pixels
   let nextId = 0;
   const ring = new Map(); // id -> { C, w, h }
@@ -170,6 +234,7 @@ export function createTracker() {
   function reset() {
     C = IDENTITY;
     ring.clear();
+    anchors.clear();
     bad = 0;
     lost = false;
   }
@@ -191,14 +256,27 @@ export function createTracker() {
         }
         const fit = P.length >= 6 ? robustSimilarity(P, Q) : null;
         quality = fit ? fit.inliers / Math.max(1, prev.feats.length) : 0;
-        if (fit && quality > 0.25) {
+        // A close object moving against the background lowers global agreement, so accept less here;
+        // anchors use their own local fits anyway.
+        const ok = fit && quality > 0.15;
+        if (ok) {
           C = compose(fit.T, C);
           bad = 0;
         } else if (++bad > 8) lost = true; // ~0.5 s of nothing usable
+        pairs = { P, Q, T: ok ? fit.T : null };
+        // How far the image center moved this frame: big jumps (fast swings, blur) break optical flow.
+        motion = ok ? Math.hypot(...((c) => [c[0] - w / 2, c[1] - h / 2])(apply(fit.T, [w / 2, h / 2]))) : Infinity;
+        for (const a of anchors) {
+          const r = stepLocal(a.pos, pairs, pairs.T, LOCAL_RADIUS * w);
+          a.pos = r.pos;
+          a.weak = r.local ? 0 : a.weak + 1;
+        }
       }
-      prev = { pyr, w, h, feats: findFeatures(pyr[0]) };
+      const near = anchors.size ? featuresNear(pyr[0], [...anchors].map((a) => a.pos), NEAR_HALF * w) : [];
+      prev = { pyr, w, h, feats: [...findFeatures(pyr[0]), ...near] };
       const id = nextId++;
-      ring.set(id, { C, w, h });
+      ring.set(id, { C, w, h, pairs });
+      pairs = null;
       if (ring.size > RING) ring.delete(ring.keys().next().value);
       return id;
     },
@@ -217,6 +295,9 @@ export function createTracker() {
     get latestId() {
       return nextId - 1;
     },
+    get motion() {
+      return motion;
+    },
     get quality() {
       return quality;
     },
@@ -225,6 +306,30 @@ export function createTracker() {
     },
     // After losing the scene, start over: items placed before this are no longer valid.
     reset,
+    // Local anchors: follow ONE spot using the motion of the features near it, so a close object moves
+    // with itself and not with the background. Placed on frame "id" (e.g. the frame Gemini saw), it is
+    // replayed through the stored frame-to-frame feature pairs up to now.
+    anchor([x, y], id) {
+      const f = ring.get(id);
+      if (!f || !size) return null;
+      let pos = [x * f.w, y * f.h];
+      for (let k = id + 1; k < nextId; k++) {
+        const fr = ring.get(k);
+        if (fr && fr.pairs) pos = stepLocal(pos, fr.pairs, fr.pairs.T, LOCAL_RADIUS * f.w).pos;
+      }
+      const a = { pos, weak: 0 };
+      anchors.add(a);
+      return a;
+    },
+    where(a) {
+      if (!a || lost || !size || !anchors.has(a)) return null;
+      return [a.pos[0] / size.w, a.pos[1] / size.h];
+    },
+    release(a) {
+      anchors.delete(a);
+    },
+    // ~1 s without local features: the anchor is only following the background.
+    isWeak: (a) => !a || a.weak > 15,
   };
 }
 

@@ -16,14 +16,14 @@
 //                         // are NOW in the camera view (optical-flow tracking); items get stale: true if lost.
 
 import { createLiveTools } from './liveTools.js';
-import { createTracker, grabGray } from '../tracking/tracker.js';
+import { createSceneTracker } from '../tracking/sceneTracker.js';
+import { createDebugLog } from './debugLog.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
 const FRAME_MAX_SIDE = 768;
 const MIC_RATE = 16000;
 const OUT_RATE = 24000;
-const TRACK_MS = 66; // ~15 fps tracking
 
 // AudioWorklet that forwards raw mic samples to the main thread.
 const WORKLET = `class Tap extends AudioWorkletProcessor {
@@ -54,8 +54,16 @@ function toPcm16(float32, fromRate) {
 }
 
 export async function startLive(opts) {
+  const { pushToTalk = false } = opts;
   const { video, onScene, onGesture, onProcedure, onCalc, onSaid, onHeard, onStatus = () => {}, onError = () => {} } = opts;
-  const status = (s) => onStatus(s);
+  const log = createDebugLog();
+  let lastStatus = null;
+  const status = (s) => {
+    if (s === lastStatus) return; // audio chunks would otherwise repeat "speaking" dozens of times
+    lastStatus = s;
+    log.event('status', s);
+    onStatus(s);
+  };
   status('connecting');
 
   // Audio must be created inside the user's tap on iOS.
@@ -63,62 +71,71 @@ export async function startLive(opts) {
   const ctx = new AC();
   await ctx.resume();
 
-  const tokenRes = await fetch('/api/live-token', { method: 'POST' });
+  const tokenRes = await fetch('/api/live-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pushToTalk }),
+  });
   if (!tokenRes.ok) throw new Error(`token: HTTP ${tokenRes.status}`);
-  const { token } = await tokenRes.json();
+  const { token, model: LIVE_MODEL_NAME } = await tokenRes.json();
 
   const tools = createLiveTools();
 
-  // ---- tracking: keep drawings on the real spots as the phone moves ----
-  const tracker = createTracker();
-  const grayCanvas = document.createElement('canvas');
+  // ---- tracking: keep drawings on the real spots as the phone moves (src/tracking/sceneTracker.js) ----
+  const st = createSceneTracker(video);
   let lastSentFrameId = -1;
-  let trackTimer = null;
-  const anchors = new Map(); // item object / point id -> { field: refCoords }
-  function trackOnce() {
-    const g = grabGray(video, grayCanvas, 320);
-    if (g) tracker.push(g.gray, g.w, g.h);
-  }
-  // New or replaced items/points are anchored to the frame Gemini last saw.
-  function anchorScene(scene) {
-    const live = new Set();
-    for (const p of scene.points) {
-      const key = 'pt:' + p.id;
-      live.add(key);
-      const prev = anchors.get(key);
-      if (!prev || prev.src !== p) anchors.set(key, { src: p, at: tracker.toRef(p.at, lastSentFrameId) });
-    }
-    for (const it of scene.items) {
-      live.add(it);
-      if (anchors.has(it)) continue;
-      const a = { src: it };
-      for (const f of ['at', 'from', 'to']) if (Array.isArray(it[f])) a[f] = tracker.toRef(it[f], lastSentFrameId);
-      anchors.set(it, a);
-    }
-    for (const k of anchors.keys()) if (!live.has(k)) anchors.delete(k);
-  }
-  function trackedScene() {
-    const scene = tools.scene;
-    const stale = tracker.lost;
-    const pos = (ref, fallback) => (stale ? fallback : tracker.fromRef(ref) ?? fallback);
-    const points = scene.points.map((p) => ({ ...p, at: pos(anchors.get('pt:' + p.id)?.at, p.at) }));
-    const items = scene.items.map((it) => {
-      const a = anchors.get(it) || {};
-      const out = { ...it };
-      let anchored = true;
-      for (const f of ['at', 'from', 'to']) {
-        if (!Array.isArray(it[f])) continue;
-        if (!a[f]) anchored = false; // placed before the tracker restarted
-        out[f] = pos(a[f], it[f]);
+  // Re-finding: optical flow can't recover after a fast swing or when the object leaves the view, so
+  // every few seconds the precise model re-locates each labelled thing on the newest frame. Things it
+  // can't find are hidden instead of left on the wrong spot; they come back when they're in view again.
+  const RESNAP_MS = 2500; // while the phone is still
+  const RESNAP_MOVING_MS = 1200; // while it's moving: correct drift sooner
+  // Per tracked frame at 320 px wide. 4-level flow is accurate up to ~28 px/frame; beyond that it fails AND
+  // under-reports (a 40 px pan reads ~29), so 26 catches real swings while normal pans (19-23 px) stay visible.
+  const BIG_MOTION_PX = 26;
+  let lastResnap = 0;
+  const snapTargets = new Map(); // id -> label
+  const hidden = new Set(); // ids not visible right now (or unsure after a big motion)
+  const pending = new Map(); // id -> timeout: waiting for the precise snap, not drawn yet
+  const PENDING_MAX_MS = 3000;
+  let resnapBusy = false;
+  let calmSince = 0;
+  const trackedScene = () => {
+    const s = st.current(tools.scene);
+    if (!hidden.size && !pending.size) return s;
+    const off = (id) => hidden.has(id) || pending.has(id);
+    return { ...s, items: s.items.map((i) => (off(i.id) || Object.values(i.refs || {}).some(off) ? { ...i, stale: true, hidden: true } : i)) };
+  };
+  const sentFrames = new Map(); // frameId -> base64 JPEG (last few), for precise-point lookups
+
+  // Precise placement: ask /api/point where exactly each new thing is on the SAME frame, then snap to it.
+  async function refinePositions(frameId, targets) {
+    const image = sentFrames.get(frameId);
+    if (!image || !targets.length) return;
+    const t = Date.now();
+    try {
+      const r = await fetch('/api/point', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, targets }) });
+      const j = await r.json();
+      log.event('refine', { frameId, targets, result: j, ms: Date.now() - t });
+      if (!r.ok || closed) return;
+      for (const tg of targets) {
+        snapTargets.set(tg.id, tg.label);
+        clearTimeout(pending.get(tg.id));
+        pending.delete(tg.id);
       }
-      if (stale || !anchored) out.stale = true;
-      return out;
-    });
-    return { items, points, tracking: { quality: tracker.quality, lost: tracker.lost } };
+      const found = new Set((j.points || []).map((p) => p.id));
+      for (const tg of targets) (found.has(tg.id) ? hidden.delete(tg.id) : hidden.add(tg.id));
+      if (!j.points?.length) return;
+      const scene = tools.refine(j.points);
+      st.place(scene, frameId);
+      onScene?.(scene);
+    } catch (e) {
+      log.event('refine-error', String(e.message || e));
+    }
   }
   const ws = new WebSocket(`${WS_URL}?access_token=${encodeURIComponent(token)}`);
   let closed = false;
   let muted = false;
+  let talking = false;
   let frameTimer = null;
   let micStream = null;
   let micNode = null;
@@ -157,18 +174,20 @@ export async function startLive(opts) {
   const frameCanvas = document.createElement('canvas');
   function sendFrame() {
     if (!video.videoWidth) return;
-    trackOnce(); // the tracker's newest frame == the frame Gemini is about to see
-    lastSentFrameId = tracker.latestId;
-    if (tracker.lost) {
-      tracker.reset(); // scene was lost: start a fresh reference from here
-      anchors.clear();
-    }
+    lastSentFrameId = st.mark(); // the tracker's frame == the frame Gemini is about to see
+    sendFrameImage(lastSentFrameId);
+  }
+  function sendFrameImage(frameId) {
+    if (!video.videoWidth) return;
     const scale = Math.min(1, FRAME_MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
     frameCanvas.width = Math.round(video.videoWidth * scale);
     frameCanvas.height = Math.round(video.videoHeight * scale);
     frameCanvas.getContext('2d').drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
     const data = frameCanvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     send({ realtimeInput: { video: { data, mimeType: 'image/jpeg' } } });
+    sentFrames.set(frameId, data);
+    if (sentFrames.size > 6) sentFrames.delete(sentFrames.keys().next().value);
+    log.frame(frameId, data);
   }
 
   // ---- microphone ----
@@ -181,7 +200,7 @@ export async function startLive(opts) {
     let pending = [];
     let pendingLen = 0;
     micNode.port.onmessage = (e) => {
-      if (muted) return;
+      if (muted || (pushToTalk && !talking)) return;
       pending.push(e.data);
       pendingLen += e.data.length;
       if (pendingLen < ctx.sampleRate / 10) return; // send ~100 ms chunks
@@ -211,16 +230,29 @@ export async function startLive(opts) {
       status('live');
       sendFrame();
       frameTimer = setInterval(sendFrame, FRAME_MS);
-      trackTimer = setInterval(trackOnce, TRACK_MS);
+      st.start();
       startMic().catch((e) => onError(new Error('microphone: ' + e.message)));
       return;
     }
     if (m.toolCall) {
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
         const { response, update } = tools.handle(fc);
+        log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
-          anchorScene(update.scene);
+          st.place(update.scene, lastSentFrameId);
           onScene?.(update.scene);
+          if (fc.name === 'show') {
+            const pointIds = (fc.args?.points || []).map((p) => p?.id).filter(Boolean);
+            const targets = tools.targetsFor(response.shown || [], pointIds);
+            if (fc.args?.clear) {
+              for (const id of snapTargets.keys()) if (!targets.some((t) => t.id === id)) snapTargets.delete(id);
+            }
+            for (const t of targets) {
+              clearTimeout(pending.get(t.id));
+              pending.set(t.id, setTimeout(() => pending.delete(t.id), PENDING_MAX_MS));
+            }
+            refinePositions(lastSentFrameId, targets);
+          }
         }
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) onProcedure?.(update.procedure);
@@ -236,11 +268,15 @@ export async function startLive(opts) {
         said = '';
       }
       for (const p of sc.modelTurn?.parts || []) if (p.inlineData?.data) play(p.inlineData.data);
+      if (sc.turnComplete && said) log.event('said', said);
       if (sc.outputTranscription?.text) {
         said += sc.outputTranscription.text;
         onSaid?.(said, false);
       }
-      if (sc.inputTranscription?.text) onHeard?.(sc.inputTranscription.text);
+      if (sc.inputTranscription?.text) {
+        log.event('heard', sc.inputTranscription.text);
+        onHeard?.(sc.inputTranscription.text);
+      }
       if (sc.turnComplete && said) {
         onSaid?.(said, true);
         said = '';
@@ -256,17 +292,92 @@ export async function startLive(opts) {
   };
 
   function cleanup() {
+    clearInterval(sampleTimer);
+    clearInterval(resnapTimer);
+    clearInterval(motionTimer);
     clearInterval(frameTimer);
-    clearInterval(trackTimer);
+    st.stop();
     stopPlayback();
     micNode?.disconnect();
     micStream?.getTracks().forEach((t) => t.stop());
   }
 
+  // Sample where the tracker shows each drawing, twice a second, for the debug report.
+  // Periodic re-snap, plus an immediate one once the phone steadies after a big motion.
+  async function resnap() {
+    if (resnapBusy || closed || !snapTargets.size) return;
+    const s = trackedScene();
+    const live = new Set([...s.items.map((i) => i.id), ...s.points.map((p) => p.id)]);
+    for (const id of snapTargets.keys()) if (!live.has(id)) snapTargets.delete(id);
+    if (!snapTargets.size) return;
+    const where = (id) => s.points.find((p) => p.id === id)?.at || s.items.find((i) => i.id === id)?.at || s.items.find((i) => i.id === id)?.to;
+    const targets = [...snapTargets].map(([id, label]) => ({ id, label, ...(Array.isArray(where(id)) && !hidden.has(id) && { at: where(id) }) }));
+    resnapBusy = true;
+    try {
+      lastSentFrameId = st.mark();
+      sendFrameImage(lastSentFrameId); // a fresh frame for the lookup (also seen by the model)
+      await refinePositions(lastSentFrameId, targets);
+    } finally {
+      resnapBusy = false;
+    }
+  }
+  let movingUntil = 0;
+  const resnapTimer = setInterval(() => {
+    const every = Date.now() < movingUntil ? RESNAP_MOVING_MS : RESNAP_MS;
+    if (Date.now() - lastResnap >= every) {
+      lastResnap = Date.now();
+      resnap();
+    }
+  }, 200);
+  const motionTimer = setInterval(() => {
+    const m = st.tracker.motion;
+    if (m > 4 && m < Infinity) movingUntil = Date.now() + 800;
+    if (m > BIG_MOTION_PX) {
+      // Fast swing: flow is unreliable. Hide everything until it's re-found.
+      if (!calmSince) log.event('big-motion', Math.round(m));
+      for (const id of snapTargets.keys()) hidden.add(id);
+      calmSince = -1;
+    } else if (calmSince === -1 && m < 4) {
+      calmSince = Date.now();
+    } else if (calmSince > 0 && Date.now() - calmSince > 300) {
+      calmSince = 0;
+      resnap();
+    }
+  }, 100);
+
+  const sampleTimer = setInterval(() => {
+    const s = trackedScene();
+    if (!s.items.length) return;
+    log.event('tracked', {
+      quality: Math.round(s.tracking.quality * 100) / 100,
+      lost: s.tracking.lost,
+      items: s.items.map((i) => ({ id: i.id, at: i.at, from: i.from, to: i.to, stale: i.stale || undefined })),
+      points: s.points,
+    });
+  }, 500);
+
   return {
+    // Everything from the last ~90 s as a JSON-able object (frames stay on the phone until shared).
+    debugReport: (extra) => log.report({ model: LIVE_MODEL_NAME, video: { w: video.videoWidth, h: video.videoHeight }, ...extra }),
     say(text) {
+      log.event('typed', text);
       if (text) send({ realtimeInput: { text } });
     },
+    // Push-to-talk: call talkStart() when the button goes down and talkEnd() when it comes up.
+    talkStart() {
+      if (!pushToTalk || talking) return;
+      talking = true;
+      stopPlayback(); // talking over the assistant interrupts it
+      send({ realtimeInput: { activityStart: {} } });
+      log.event('talk', 'start');
+    },
+    talkEnd() {
+      if (!pushToTalk || !talking) return;
+      talking = false;
+      setTimeout(() => send({ realtimeInput: { activityEnd: {} } }), 150); // let the last mic chunk go out
+      log.event('talk', 'end');
+    },
+    pushToTalk,
     mute(on) {
       muted = Boolean(on);
     },

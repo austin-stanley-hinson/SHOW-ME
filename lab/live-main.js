@@ -4,15 +4,46 @@ import { startLive } from '../src/client/live.js';
 import { formatLabel } from '../src/physics/calc.js';
 
 const $ = (id) => document.getElementById(id);
+// Hold-to-talk by default: in a noisy room, only what you say while holding the button is heard.
+const PTT = new URLSearchParams(location.search).get('ptt') !== '0';
 const video = $('video');
 const canvas = $('overlay');
 const g2d = canvas.getContext('2d');
 let live = null;
 let scene = { items: [], points: [] };
 let calcResult = null;
+let heardText = '';
+let heardDone = true;
 const gestures = new Map(); // target id -> { type, start, until }
 
 // Contract [x, y] 0-1 of the full video frame -> canvas pixels (video uses object-fit: contain).
+// Display smoothing: each frame, move every drawn position part of the way to its new target, so snaps
+// and tracker corrections glide instead of jump (and small jitter is filtered out).
+const shown = new Map(); // key -> [x, y]
+function ease(key, p) {
+  if (!Array.isArray(p)) return p;
+  const prev = shown.get(key);
+  const far = prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) > 0.35; // teleport on huge jumps
+  const next = !prev || far ? p : [prev[0] + (p[0] - prev[0]) * 0.35, prev[1] + (p[1] - prev[1]) * 0.35];
+  shown.set(key, next);
+  return next;
+}
+function smooth(s) {
+  const live = new Set();
+  const points = s.points.map((p) => (live.add('p:' + p.id), { ...p, at: ease('p:' + p.id, p.at) }));
+  const items = s.items.map((it) => {
+    const out = { ...it };
+    for (const f of ['at', 'from', 'to']) {
+      if (!Array.isArray(it[f])) continue;
+      live.add(it.id + '.' + f);
+      out[f] = it.hidden ? it[f] : ease(it.id + '.' + f, it[f]);
+    }
+    return out;
+  });
+  for (const k of shown.keys()) if (!live.has(k)) shown.delete(k);
+  return { ...s, items, points };
+}
+
 function frameRect() {
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
@@ -51,6 +82,32 @@ function text(ctx, s, x, y, color) {
   ctx.fillStyle = color || '#fff';
   ctx.fillText(s, x, y);
 }
+// "point" gesture: an arrow that slides in and taps the spot (not a ring).
+function pointer(ctx, p, ms) {
+  const bob = 6 * Math.sin(ms / 160);
+  const tip = [p[0] - 4, p[1] - 4];
+  const tail = [tip[0] - 70 - bob, tip[1] - 70 - bob];
+  arrow(ctx, tail, [tip[0] - bob * 0.3, tip[1] - bob * 0.3], '#ffffff', 6);
+}
+// Curved arrow around a spot: twisting / turning. Spins slowly so the direction is obvious.
+function rotateArrow(ctx, p, radius, ccw, color, now) {
+  const spin = ((now / 1400) % 1) * Math.PI * 2 * (ccw ? -1 : 1);
+  const a0 = spin, a1 = spin + (ccw ? -1 : 1) * Math.PI * 1.5;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(p[0], p[1], radius, a0, a1, ccw);
+  ctx.stroke();
+  const tip = [p[0] + radius * Math.cos(a1), p[1] + radius * Math.sin(a1)];
+  const tangent = a1 + (ccw ? -Math.PI / 2 : Math.PI / 2);
+  ctx.beginPath();
+  ctx.moveTo(tip[0] + 14 * Math.cos(tangent), tip[1] + 14 * Math.sin(tangent));
+  ctx.lineTo(tip[0] + 9 * Math.cos(tangent + 2.2), tip[1] + 9 * Math.sin(tangent + 2.2));
+  ctx.lineTo(tip[0] + 9 * Math.cos(tangent - 2.2), tip[1] + 9 * Math.sin(tangent - 2.2));
+  ctx.closePath();
+  ctx.fill();
+}
 function ring(ctx, p, radius, color, width) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -70,11 +127,12 @@ function draw(now) {
   const r = frameRect();
   // Positions follow the real spots as the phone moves (tracker inside live.js).
   if (live) {
-    scene = live.trackedScene();
+    scene = smooth(live.trackedScene());
     $('status').dataset.track = scene.tracking.lost ? ' · tracking lost' : '';
   }
 
   for (const it of scene.items) {
+    if (it.hidden) continue; // not in view right now: re-found automatically when it is
     g2d.globalAlpha = it.stale ? 0.35 : 1; // faded = not anchored to the current view
     const color = it.color || '#ffcc00';
     const g = gestures.get(it.id) || Object.values(it.refs || {}).map((id) => gestures.get(id)).find(Boolean);
@@ -114,6 +172,7 @@ function draw(now) {
       continue;
     }
     if (it.type === 'circle') ring(g2d, p, (it.r || 0.04) * r.w * pulse, color, 4);
+    if (it.type === 'rotate') rotateArrow(g2d, p, (it.r || 0.06) * r.w * pulse, it.dir === 'ccw', color, now);
     if (it.type === 'point') {
       g2d.fillStyle = color;
       g2d.beginPath();
@@ -132,14 +191,15 @@ function draw(now) {
       g2d.textAlign = 'start';
     }
     if (label) text(g2d, label, p[0] + 16, p[1] - 12, color);
-    if (active && (g.type === 'point' || g.type === 'circle')) ring(g2d, p, 26 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (active && g.type === 'circle') ring(g2d, p, 26 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (active && g.type === 'point') pointer(g2d, p, now - g.start);
   }
 
   // Gestures aimed at bare named points (not drawn as items).
   for (const [id, g] of gestures) {
     if (g.until < now || scene.items.some((i) => i.id === id)) continue;
     const p = toPx(id, r);
-    if (p) ring(g2d, p, 22 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (p) (g.type === 'point' ? pointer(g2d, p, now - g.start) : ring(g2d, p, 22 + 6 * Math.sin(now / 120), '#fff', 3));
   }
   requestAnimationFrame(draw);
 }
@@ -167,6 +227,7 @@ $('go').onclick = async () => {
     await openCamera();
     live = await startLive({
       video,
+      pushToTalk: PTT,
       onScene: () => {},
       onGesture: (g) => {
         const t = performance.now();
@@ -177,11 +238,15 @@ $('go').onclick = async () => {
         calcResult = result;
         $('math').textContent = result.lines.join('\n') + (result.verdict ? `\n→ ${result.verdict.text}` : '');
       },
-      onSaid: (t) => {
+      onSaid: (t, final) => {
         $('said').textContent = t;
+        if (final) heardDone = true;
       },
       onHeard: (t) => {
-        $('heard').textContent = 'You: ' + t;
+        // Transcripts arrive in fragments: join them into one line per turn.
+        heardText = heardDone ? t.trim() : (heardText + ' ' + t).trim();
+        heardDone = false;
+        $('heard').textContent = 'You: ' + heardText;
       },
       onStatus: (s) => {
         $('status').textContent = s + ($('status').dataset.track || '');
@@ -191,12 +256,32 @@ $('go').onclick = async () => {
       },
     });
     $('start').style.display = 'none';
+    if (PTT) $('talk').style.display = 'block';
     requestAnimationFrame(draw);
   } catch (e) {
     $('go').disabled = false;
     $('start').querySelector('p').textContent = 'Could not start: ' + e.message;
   }
 };
+{
+  const talk = $('talk');
+  const down = (e) => {
+    e.preventDefault();
+    live?.talkStart();
+    talk.classList.add('on');
+    talk.textContent = 'Listening… release when done';
+  };
+  const up = (e) => {
+    e.preventDefault();
+    live?.talkEnd();
+    talk.classList.remove('on');
+    talk.textContent = 'Hold to talk';
+  };
+  talk.addEventListener('pointerdown', down);
+  talk.addEventListener('pointerup', up);
+  talk.addEventListener('pointercancel', up);
+  talk.addEventListener('pointerleave', (e) => talk.classList.contains('on') && up(e));
+}
 $('send').onclick = () => {
   live?.say($('typed').value.trim());
   $('typed').value = '';
@@ -208,6 +293,24 @@ $('mute').onclick = () => {
   const on = $('mute').textContent === 'Mute mic';
   live?.mute(on);
   $('mute').textContent = on ? 'Unmute' : 'Mute mic';
+};
+$('report').onclick = async () => {
+  if (!live) return;
+  const report = live.debugReport({ page: location.href });
+  const name = 'show-me-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+  const file = new File([JSON.stringify(report)], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'show me debug', text: 'show me debug' });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  a.click();
 };
 $('end').onclick = () => {
   live?.stop();
