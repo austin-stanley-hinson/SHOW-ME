@@ -103,3 +103,35 @@ test('unlabelled arrows are snapped too, named by a label at the same spot or by
   const lab = s.items.find((i) => i.id === 'fork_label').at;
   assert.ok(Math.abs(lab[0] - 0.8) < 1e-9 && Math.abs(lab[1] - 0.3) < 1e-9); // the label moved with the arrow tip
 });
+
+test('motion arrows: only the part end is snapped, the arrow moves rigidly (stapler "lift the cover")', () => {
+  const t = createLiveTools();
+  // The model's arrow: from a point on the cover to a point in the air above it.
+  t.handle({ name: 'show', args: {
+    points: [{ id: 'stapler_top', at: [413, 382] }, { id: 'stapler_top_up', at: [350, 382] }],
+    items: [{ type: 'arrow', id: 'open_stapler', label: 'Lift the top cover up', from_point: 'stapler_top', to_point: 'stapler_top_up' }],
+  } });
+  const targets = t.targetsFor(['open_stapler'], ['stapler_top', 'stapler_top_up']);
+  assert.deepEqual(targets.map((x) => x.id), ['stapler_top']); // the air point is never looked up
+  const s = t.refine([{ id: 'stapler_top', at: [0.454, 0.386] }]);
+  const top = s.points.find((p) => p.id === 'stapler_top').at, up = s.points.find((p) => p.id === 'stapler_top_up').at;
+  assert.ok(Math.abs(up[1] - top[1] + 0.063) < 1e-9 && Math.abs(up[0] - top[0]) < 1e-9); // still 0.063 above
+  const a = s.items[0];
+  assert.deepEqual(a.from, top); // the arrow follows its points
+  assert.deepEqual(a.to, up);
+});
+
+test('pointing arrows snap the tip; explicit anchor wins; circles given from_point are accepted', () => {
+  const t = createLiveTools();
+  t.handle({ name: 'show', args: { items: [
+    { type: 'arrow', id: 'w', label: 'Weight', anchor: 'tail', from: [400, 500], to: [600, 500] },
+    { type: 'arrow', id: 'lever', label: 'the lever', from: [300, 300], to: [500, 500] },
+  ], points: [{ id: 'tray', at: [610, 480] }] } });
+  t.handle({ name: 'show', args: { items: [{ type: 'circle', id: 'place', label: 'Place staples here', from_point: 'tray', to_point: 'tray' }] } });
+  assert.ok(t.scene.items.some((i) => i.id === 'place'));
+  const targets = t.targetsFor(['w', 'lever'], []);
+  assert.deepEqual(targets.map((x) => [x.id, x.at]), [['w', [0.5, 0.4]], ['lever', [0.5, 0.5]]]);
+  const s = t.refine([{ id: 'w', at: [0.52, 0.42] }]);
+  const w = s.items.find((i) => i.id === 'w');
+  assert.ok(Math.abs(w.from[0] - 0.52) < 1e-9 && Math.abs(w.to[1] - 0.62) < 1e-9); // rigid shift from the tail
+});
