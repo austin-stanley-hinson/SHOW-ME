@@ -37,7 +37,10 @@ const clampXY = (p) => p.map((n) => Math.min(1, Math.max(0, n)));
 const isHex = (c) => typeof c === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c);
 const str = (s, max) => (typeof s === 'string' ? s.trim().slice(0, max) : '');
 
-function normalizeItem(raw, calc) {
+// tracked (live mode): positions come from the tracker and may be outside the frame (the spot moved
+// off screen). Keep them as they are so the renderer can leave those items out, instead of pinning
+// them to the edge. Answers from the model are clamped into the frame.
+function normalizeItem(raw, calc, tracked = false) {
   if (!raw || typeof raw !== 'object') return null;
   if (raw.hidden) return null; // live mode: not in view / not re-found yet (CONTRACT v3.1)
   const fields = REQUIRED_POINTS[raw.type];
@@ -55,7 +58,7 @@ function normalizeItem(raw, calc) {
     color: isHex(raw.color) ? raw.color : DEFAULT_COLOR[raw.type],
     text: formatLabel(label, typeof raw.quantity === 'string' ? raw.quantity : null, calc),
   };
-  for (const f of fields) item[f] = clampXY(raw[f]);
+  for (const f of fields) item[f] = tracked ? raw[f] : clampXY(raw[f]);
   if (raw.stale) item.stale = true; // live mode: the tracker lost this spot
   if (raw.refs && typeof raw.refs === 'object') item.refs = raw.refs; // point ids, for gesture targets
 
@@ -99,6 +102,7 @@ function markUnchecked(text, flagged) {
 // items (optional): the current view's items from src/client/view.js (applyResponse), so
 // follow-up answers that edit the view (clear: false) keep what's already on screen.
 // opts.calc (optional): an evaluateCalc result already computed (live mode gets one from onCalc).
+// opts.tracked (live mode): positions may be off frame; don't clamp them (see normalizeItem).
 export function buildScene(data, items = null, opts = {}) {
   const calc = opts.calc ?? evaluateCalc(data?.calc ?? null);
   const hasCalc = Boolean(data?.calc) || Boolean(opts.calc);
@@ -106,7 +110,7 @@ export function buildScene(data, items = null, opts = {}) {
   const seen = new Set();
   const source = Array.isArray(items) ? items : Array.isArray(data?.draw) ? data.draw : [];
   for (const raw of source) {
-    const item = normalizeItem(raw, calc);
+    const item = normalizeItem(raw, calc, Boolean(opts.tracked));
     if (!item || seen.has(item.id)) continue;
     seen.add(item.id);
     drawn.push(item);

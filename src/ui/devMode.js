@@ -56,6 +56,7 @@ export function fakeStartLive({ pushToTalk = false, ...h }) {
   const foldV = validateResponse(structuredClone(fold)).value;
   let scene = { items: [], points: [] };
   let closed = false;
+  let watched = false;
   const timers = [];
   const at = (ms, fn) => timers.push(setTimeout(() => !closed && fn(), ms));
   const speak = (start, text) => {
@@ -76,6 +77,10 @@ export function fakeStartLive({ pushToTalk = false, ...h }) {
   speak(1700, 'Its weight holds it down around the rear feet. A push of about eight newtons at the top tips it.');
   at(2200, () => h.onGesture?.({ type: 'trace', target: chairV.draw.find((i) => i.type === 'arrow')?.id }));
   at(3600, () => h.onGesture?.({ type: 'pulse', target: chairV.draw.find((i) => i.type === 'circle')?.id }));
+  // A spot the tracker followed out of the frame: must not be drawn or labelled (no pinning to the edge).
+  at(4000, () => {
+    scene = { ...scene, items: [...scene.items, { type: 'point', id: 'offscreen', at: [1.3, 0.4], label: 'SHOULD NOT SHOW EITHER' }] };
+  });
   at(4600, () => {
     // v3.1 extras: a twisting arrow, the "point" gesture, and an item the tracker can't see (hidden).
     scene = {
@@ -108,6 +113,16 @@ export function fakeStartLive({ pushToTalk = false, ...h }) {
             speak(300, `(simulated) You said: ${text}`);
           },
           mute: () => {},
+          // Hands-free step checking: pretend the AI noticed step 1 was done a few seconds in.
+          watch: (on) => {
+            if (on && params.get('fakestep') === '1' && !watched) {
+              watched = true;
+              at(3000, () => {
+                speak(0, 'Nice, the seat is up. Step 2: press the hinge release.');
+                h.onProcedure?.({ ...foldV.procedure, current: 2, done_when: 'The seat clicks into the folded position.' });
+              });
+            }
+          },
           pushToTalk,
           talkStart: () => h.onStatus?.('listening'),
           talkEnd: () => {

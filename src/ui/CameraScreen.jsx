@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { captureFrame } from '../camera/captureFrame.js';
 import { ask } from '../client/askApi.js';
 import { emptyScene, applyResponse, previousFor } from '../client/view.js';
 import { buildScene } from '../overlay/scene.js';
 import AnnotationLayer from '../overlay/AnnotationLayer.jsx';
 import { AnswerText, CalcText } from './AnswerParts.jsx';
+import CalcSliders from './CalcSliders.jsx';
+import { evaluateCalc } from '../physics/calc.js';
 import { fixtureName, fixtureAnswer, placeholderFrame, fakeLive, fakeStartLive } from './devMode.js';
 import { startLive } from '../client/live.js';
 import { createLiveStore } from './liveStore.js';
@@ -23,7 +25,9 @@ export default function CameraScreen({ stream, orientation }) {
   const requestId = useRef(0);
   const [frame, setFrame] = useState(null); // frozen canvas, or null when live
   const [status, setStatus] = useState('live'); // live | thinking | result | error
-  const [scene, setScene] = useState(null);
+  const [answer, setAnswer] = useState(null); // { data, items }: the latest answer and the view it applies to
+  const [overrides, setOverrides] = useState({}); // "what if" slider values, by calc input name
+  const [whatIfOpen, setWhatIfOpen] = useState(false); // sliders open: the answer text folds away
   const [view, setView] = useState(emptyScene);
   const [liveSession, setLiveSession] = useState(null); // { store, live } while in live mode
   const liveRef = useRef(null);
@@ -35,6 +39,17 @@ export default function CameraScreen({ stream, orientation }) {
   const [barHeight, setBarHeight] = useState(0);
   const controlsRef = useRef(null);
   const [controlsBox, setControlsBox] = useState(null);
+  // The scene is derived, so dragging a slider re-checks the math and redraws the labels.
+  const calcResult = useMemo(
+    () => (answer?.data?.calc ? evaluateCalc(answer.data.calc, null, overrides) : null),
+    [answer, overrides],
+  );
+  const scene = useMemo(
+    () => (answer ? buildScene(answer.data, answer.items, calcResult ? { calc: calcResult } : {}) : null),
+    [answer, calcResult],
+  );
+  const setOverride = (name, value) => setOverrides((o) => ({ ...o, [name]: { value, by: 'you' } }));
+
   const [caption, setCaption] = useState(
     orientation === 'denied'
       ? 'Motion sensors are off, so drawings won’t follow the phone. Point at something and ask.'
@@ -116,7 +131,9 @@ export default function CameraScreen({ stream, orientation }) {
     const nextView = applyResponse(view, result.data, q);
     const next = buildScene(result.data, nextView.items);
     setView(nextView);
-    setScene(next);
+    setAnswer({ data: result.data, items: nextView.items });
+    setOverrides({});
+    setWhatIfOpen(false);
     setTextHidden(false);
     setDrawingsHidden(false);
     setStatus('result');
@@ -151,7 +168,9 @@ export default function CameraScreen({ stream, orientation }) {
   function handleLive() {
     requestId.current++;
     if (stream) setFrame(null);
-    setScene(null);
+    setAnswer(null);
+    setOverrides({});
+    setWhatIfOpen(false);
     setView(emptyScene());
     setErrorDetail('');
     setStatus('live');
@@ -207,7 +226,7 @@ export default function CameraScreen({ stream, orientation }) {
       )}
 
       <div className="bottom-bar" ref={barRef}>
-        <div className="caption-area" hidden={textHidden}>
+        <div className="caption-area" hidden={textHidden || (whatIfOpen && !thinking)}>
           {scene?.title && !thinking && <p className="answer-title">{scene.title}</p>}
           <p className="caption" role="status" aria-live="polite">
             {thinking && <span className="spinner" aria-hidden="true" />}
@@ -233,6 +252,18 @@ export default function CameraScreen({ stream, orientation }) {
 
           {scene?.hasCalc && <CalcText scene={scene} />}
         </div>
+
+        {/* Outside the scrolling caption, so the verdict and sliders stay in view while dragging. */}
+        {calcResult && !thinking && !textHidden && (
+          <CalcSliders
+            sheet={answer.data.calc}
+            result={calcResult}
+            onChange={setOverride}
+            onReset={() => setOverrides({})}
+            open={whatIfOpen}
+            onOpenChange={setWhatIfOpen}
+          />
+        )}
 
         {!thinking && !scene && !textHidden && (stream || fakeLive) && (
           <button type="button" className="big-button live-button" onClick={goLive}>

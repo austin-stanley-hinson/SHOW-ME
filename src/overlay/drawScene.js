@@ -37,6 +37,10 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
     texts: new Set(), // identical labels are drawn once (e.g. three "Leg = 65.3 N")
   };
 
+  // Only what's on screen: a spot the tracker has followed out of view is left out entirely
+  // (shape, label and gestures), instead of a label lingering at the screen edge.
+  const items = scene.items.filter((i) => i.type === 'panel' || onScreen(env, i));
+
   const inset = Math.max(0, opts.bottomInset || 0);
   if (inset) env.placed.push({ l: 0, t: h - inset, r: w, b: h });
   const tr = opts.topRight;
@@ -49,10 +53,10 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
     ctx.globalAlpha = item.stale ? 0.4 : 1;
     SHAPES[item.type]?.(env, item);
   };
-  for (const item of scene.items) if (!isMarker(item)) shape(item);
-  for (const item of scene.items) if (isMarker(item)) shape(item);
+  for (const item of items) if (!isMarker(item)) shape(item);
+  for (const item of items) if (isMarker(item)) shape(item);
   ctx.globalAlpha = 1;
-  env.shapeBoxes = scene.items
+  env.shapeBoxes = items
     .filter((i) => i.from && i.to)
     .map((i) => {
       const [a, b] = [env.P(i.from), env.P(i.to)];
@@ -60,7 +64,7 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
       return { l: Math.min(a[0], b[0]) - pad, t: Math.min(a[1], b[1]) - pad, r: Math.max(a[0], b[0]) + pad, b: Math.max(a[1], b[1]) + pad };
     });
   // Markers are obstacles for labels.
-  for (const item of scene.items) {
+  for (const item of items) {
     if (item.type === 'circle' || item.type === 'rotate') {
       const [x, y] = env.P(item.at);
       const r = item.r * env.fw;
@@ -72,15 +76,24 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
     }
   }
   // Panels first (largest), then labels around them.
-  for (const item of scene.items) if (item.type === 'panel') drawPanel(env, item);
-  for (const item of scene.items) {
-    if (item.type === 'panel') continue;
-    ctx.globalAlpha = item.stale ? 0.5 : 1;
+  for (const item of items) if (item.type === 'panel') drawPanel(env, item);
+  for (const item of items) {
+    // Stale = the tracker isn't sure where this is now: keep a faint shape, but no label claiming it.
+    if (item.type === 'panel' || item.stale) continue;
     LABELS[item.type]?.(env, item);
   }
   ctx.globalAlpha = 1;
   // Last, so the AI's pointing is never hidden under a panel or label.
-  if (opts.gestures?.size) drawGestures(env, scene.items, opts);
+  if (opts.gestures?.size) drawGestures(env, items, opts);
+}
+
+function onScreen(env, item) {
+  const inView = (p) => {
+    if (!Array.isArray(p)) return false;
+    const [x, y] = env.P(p);
+    return x >= 0 && x <= env.w && y >= 0 && y <= env.h;
+  };
+  return item.at ? inView(item.at) : inView(item.from) || inView(item.to);
 }
 
 // ---------- gestures (the AI "pointing" while it talks) ----------

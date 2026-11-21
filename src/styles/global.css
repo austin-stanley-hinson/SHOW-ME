@@ -503,6 +503,80 @@ mark.unchecked {
   -webkit-touch-callout: none;
 }
 
+/* Hands-free step checking (the AI watches for done_when by itself). */
+.watch-row {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.watch-row p {
+  flex: 1;
+  margin: 0;
+}
+
+.watch-row .toggle {
+  flex: none;
+}
+
+.procedure-watching {
+  color: #30d158;
+  font-weight: 600;
+}
+
+.done-button.secondary {
+  min-height: 48px;
+  background: transparent;
+  color: var(--fg);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+}
+
+/* "What if" sliders */
+.what-if {
+  width: 100%;
+  max-width: 600px;
+}
+
+.what-if-toggle {
+  width: 100%;
+}
+
+.what-if-body {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.what-if-verdict {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.what-if-verdict.changed {
+  color: var(--accent);
+}
+
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.slider-row input[type='range'] {
+  width: 100%;
+  min-height: 44px;
+  accent-color: var(--accent);
+}
+
 .talk-button.talking {
   background: #30d158;
   color: #000;

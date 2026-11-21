@@ -1,7 +1,7 @@
 // Eases tracked positions toward their targets each frame, so snaps and tracker corrections glide
 // instead of jump. Huge jumps (the thing was re-found somewhere else) teleport. Hidden items are
 // passed through untouched. Positions that are point ids (strings) are left alone.
-const FIELDS = ["at", "from", "to"];
+const FIELDS = ['at', 'from', 'to'];
 
 export function createSmoother({ rate = 0.35, teleport = 0.35 } = {}) {
   const shown = new Map(); // key -> last drawn [x, y]
@@ -9,13 +9,7 @@ export function createSmoother({ rate = 0.35, teleport = 0.35 } = {}) {
   function ease(key, p) {
     const prev = shown.get(key);
     const far = prev && Math.hypot(p[0] - prev[0], p[1] - prev[1]) > teleport;
-    const next =
-      !prev || far
-        ? p
-        : [
-            prev[0] + (p[0] - prev[0]) * rate,
-            prev[1] + (p[1] - prev[1]) * rate,
-          ];
+    const next = !prev || far ? p : [prev[0] + (p[0] - prev[0]) * rate, prev[1] + (p[1] - prev[1]) * rate];
     shown.set(key, next);
     return next;
   }
