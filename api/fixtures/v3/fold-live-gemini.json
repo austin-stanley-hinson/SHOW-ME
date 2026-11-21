@@ -1,0 +1,90 @@
+{
+  "answer": "To fold this chair, pull the back of the seat upward while holding the top frame. The legs and seat will scissor flat together.",
+  "followup_question": null,
+  "points": [
+    {
+      "id": "back_rest",
+      "at": [
+        0.6,
+        0.22
+      ]
+    },
+    {
+      "id": "seat_rear",
+      "at": [
+        0.48,
+        0.46
+      ]
+    },
+    {
+      "id": "seat_front",
+      "at": [
+        0.28,
+        0.48
+      ]
+    }
+  ],
+  "calc": null,
+  "draw": [
+    {
+      "type": "circle",
+      "id": "grip_top",
+      "at": [
+        0.6,
+        0.22
+      ],
+      "r": 0.08,
+      "color": "#ffcc00",
+      "label": "1. Hold frame here"
+    },
+    {
+      "type": "arrow",
+      "id": "lift_seat",
+      "from": [
+        0.48,
+        0.49
+      ],
+      "to": [
+        0.48,
+        0.35
+      ],
+      "color": "#0a84ff",
+      "label": "2. Pull seat upward"
+    }
+  ],
+  "clear": true,
+  "remove": [],
+  "narration": [
+    {
+      "say": "Hold the top backrest with one hand to keep the frame steady.",
+      "gesture": {
+        "type": "circle",
+        "target": "grip_top"
+      }
+    },
+    {
+      "say": "With your other hand, pull upward on the back edge of the seat.",
+      "gesture": {
+        "type": "trace",
+        "target": "lift_seat"
+      }
+    },
+    {
+      "say": "The front and rear legs will collapse together as the seat folds flat against the frame.",
+      "gesture": {
+        "type": "pulse",
+        "target": "lift_seat"
+      }
+    }
+  ],
+  "procedure": {
+    "title": "Fold Folding Chair",
+    "current": 1,
+    "total": 2,
+    "done_when": "The seat is pulled up vertically and the frame collapses flat.",
+    "complete": false,
+    "safety": [
+      "Keep fingers clear of the leg hinges and pivot brackets to avoid pinching."
+    ]
+  }
+}

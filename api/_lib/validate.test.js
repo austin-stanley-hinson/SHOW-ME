@@ -120,7 +120,7 @@ test('narration with gestures, scene edits and procedures', () => {
 
 test('contract v3 examples are valid, and the chair calc checks out', async () => {
   const { evaluateCalc, auditText } = await import('../../src/physics/calc.js');
-  for (const name of ['what-is-this', 'fold-step1', 'chair-tip', 'nothing']) {
+  for (const name of ['what-is-this', 'fold-step1', 'chair-tip', 'nothing', 'fold-live-gemini']) {
     const raw = JSON.parse(readFileSync(new URL(`../fixtures/v3/${name}.json`, import.meta.url)));
     const r = validateResponse(raw);
     assert.equal(r.ok, true, name);
