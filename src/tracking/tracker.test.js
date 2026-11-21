@@ -78,3 +78,30 @@ test('tracker: a featureless view marks it lost', () => {
   assert.equal(tr.lost, true);
   assert.equal(tr.fromRef([10, 10]), null);
 });
+
+test('parallax: an anchor on a close object follows the object, not the background', () => {
+  const w = 200, h = 150;
+  const bgTex = (X, Y) => 120 + 50 * Math.sin(X * 0.19) * Math.cos(Y * 0.23) + 30 * Math.sin((X - Y) * 0.09);
+  const fgTex = (X, Y) => 120 + 70 * Math.cos(X * 0.31) * Math.sin(Y * 0.27) + 40 * Math.cos((X + 2 * Y) * 0.13);
+  // Camera steps sideways: the background shifts 1 px/frame, a near object (box) shifts 3 px/frame.
+  const frame = (k) => {
+    const img = new Float32Array(w * h);
+    const fx = 70 - 3 * k, fy = 45; // object box top-left on screen
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const inBox = x >= fx && x < fx + 70 && y >= fy && y < fy + 60;
+        img[y * w + x] = inBox ? fgTex(x - fx, y - fy) : bgTex(x + k, y);
+      }
+    return img;
+  };
+  const tr = createTracker();
+  const seen = tr.push(frame(0), w, h);
+  const a = tr.anchor([(70 + 35) / w, (45 + 30) / h], seen); // center of the object
+  for (let k = 1; k <= 12; k++) tr.push(frame(k), w, h);
+  const now = tr.where(a);
+  const truth = [(70 - 36 + 35) / w, (45 + 30) / h]; // object moved 36 px left
+  const bgOnly = [(70 - 12 + 35) / w, (45 + 30) / h]; // where a background-only tracker would put it
+  const err = Math.hypot((now[0] - truth[0]) * w, (now[1] - truth[1]) * h);
+  assert.ok(err < 4, `error ${err.toFixed(1)} px (background-only would be ${Math.hypot((bgOnly[0] - truth[0]) * w, 0).toFixed(0)} px off)`);
+  assert.equal(tr.isWeak(a), false);
+});

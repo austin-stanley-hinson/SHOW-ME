@@ -44,6 +44,8 @@ ws.onmessage = async (ev) => {
     frames = setInterval(() => ws.send(JSON.stringify({ realtimeInput: { video: { data: frame, mimeType: 'image/jpeg' } } })), 1000);
     setTimeout(ask, 2500);
   }
+  if (m.toolCall) clearTimeout(globalThis.__next);
+  if (m.serverContent?.modelTurn) clearTimeout(globalThis.__next);
   if (m.toolCall) {
     const responses = m.toolCall.functionCalls.map((fc) => {
       const { response, update } = tools.handle(fc);
@@ -60,14 +62,19 @@ ws.onmessage = async (ev) => {
   const sc = m.serverContent;
   if (sc && process.env.LIVE_DEBUG) log('  sc keys:', Object.keys(sc).join(','), sc.outputTranscription ? JSON.stringify(sc.outputTranscription).slice(0, 80) : '');
   if (sc) {
-    for (const p of sc.modelTurn?.parts || []) if (p.inlineData) audio += p.inlineData.data.length;
+    for (const p of sc.modelTurn?.parts || []) {
+      if (p.inlineData) audio += p.inlineData.data.length;
+      if (p.executableCode || p.codeExecutionResult) log('   (model ran code)');
+    }
+    if (sc.groundingMetadata) log('   SEARCHED:', JSON.stringify(sc.groundingMetadata.webSearchQueries || sc.groundingMetadata).slice(0, 160));
     if (sc.outputTranscription?.text) said += sc.outputTranscription.text;
     if (sc.turnComplete && (said || audio)) {
       log(`GEMINI SAID (${Math.round((audio * 3) / 4 / 48000)} s of audio):`, JSON.stringify(said.trim()));
       said = '';
       audio = 0;
-      if (++q < questions.length) setTimeout(ask, 1500);
-      else setTimeout(() => ws.close(), 500);
+      // The model may keep going in another turn (e.g. after searching): wait for quiet before moving on.
+      clearTimeout(globalThis.__next);
+      globalThis.__next = setTimeout(() => (++q < questions.length ? ask() : ws.close()), 9000);
     }
   }
   if (m.goAway) log('goAway', JSON.stringify(m.goAway));

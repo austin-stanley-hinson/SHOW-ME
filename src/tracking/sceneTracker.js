@@ -57,21 +57,29 @@ export function createSceneTracker(video, { fps = 15, width = 320 } = {}) {
       for (const p of scene.points || []) {
         const key = 'pt:' + p.id;
         keep.add(key);
-        if (anchors.get(key)?.src !== p) anchors.set(key, { src: p, at: tracker.toRef(p.at, frameId) });
+        const old = anchors.get(key);
+        if (!old || old.src !== p) {
+          if (old) tracker.release(old.at);
+          anchors.set(key, { src: p, at: tracker.anchor(p.at, frameId) });
+        }
       }
       for (const it of scene.items || []) {
         keep.add(it);
         if (anchors.has(it)) continue;
         const a = { src: it };
-        for (const f of FIELDS) if (Array.isArray(it[f])) a[f] = tracker.toRef(it[f], frameId);
+        for (const f of FIELDS) if (Array.isArray(it[f])) a[f] = tracker.anchor(it[f], frameId);
         anchors.set(it, a);
       }
-      for (const k of anchors.keys()) if (!keep.has(k)) anchors.delete(k);
+      for (const [k, a] of anchors) {
+        if (keep.has(k)) continue;
+        for (const f of FIELDS) if (a[f]) tracker.release(a[f]);
+        anchors.delete(k);
+      }
     },
     // The scene re-projected into the newest camera frame.
     current(scene) {
       const lost = tracker.lost;
-      const pos = (ref, fallback) => (lost || !ref ? fallback : tracker.fromRef(ref) ?? fallback);
+      const pos = (anchor, fallback) => (lost || !anchor ? fallback : tracker.where(anchor) ?? fallback);
       const points = (scene.points || []).map((p) => ({ ...p, at: pos(anchors.get('pt:' + p.id)?.at, p.at) }));
       const items = (scene.items || []).map((it) => {
         const a = anchors.get(it) || {};
