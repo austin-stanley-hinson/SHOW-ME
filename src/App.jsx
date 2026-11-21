@@ -3,8 +3,10 @@ import StartScreen from './ui/StartScreen.jsx';
 import CameraScreen from './ui/CameraScreen.jsx';
 import { openCamera, stopCamera, cameraErrorMessage } from './camera/camera.js';
 import { requestOrientationPermission } from './orientation/permission.js';
+import { noCamera } from './ui/devMode.js';
 
 export default function App() {
+  const [started, setStarted] = useState(false);
   const [stream, setStream] = useState(null);
   const [orientation, setOrientation] = useState('unknown');
   const [busy, setBusy] = useState(false);
@@ -18,9 +20,9 @@ export default function App() {
     setBusy(true);
     setMessage('');
     try {
-      const s = await openCamera();
+      if (!noCamera) setStream(await openCamera());
       setOrientation(await orientationPromise);
-      setStream(s);
+      setStarted(true);
     } catch (err) {
       setMessage(cameraErrorMessage(err));
     } finally {
@@ -28,6 +30,6 @@ export default function App() {
     }
   }
 
-  if (!stream) return <StartScreen onStart={handleStart} busy={busy} message={message} />;
+  if (!started) return <StartScreen onStart={handleStart} busy={busy} message={message} />;
   return <CameraScreen stream={stream} orientation={orientation} />;
 }

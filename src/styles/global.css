@@ -124,3 +124,187 @@ body,
   line-height: 1.4;
   text-align: center;
 }
+
+/* ---------- overlay + answer UI ---------- */
+
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.bottom-bar {
+  gap: 10px;
+}
+
+.caption-area {
+  width: 100%;
+  max-width: 600px;
+  max-height: 30vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.caption-detail {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.followup,
+.steps-list,
+.physics-text {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.75);
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+
+.followup {
+  border-left: 4px solid var(--accent);
+}
+
+.steps-list {
+  padding-left: 36px;
+}
+
+.steps-list li + li {
+  margin-top: 4px;
+}
+
+.physics-text ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--accent);
+}
+
+.physics-text p {
+  margin: 0;
+}
+
+.physics-text .explanation + ul,
+.physics-text * + .assumptions {
+  margin-top: 6px;
+}
+
+.physics-text .assumptions {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.95rem;
+}
+
+.caption-area[hidden],
+.ask-row[hidden] {
+  display: none;
+}
+
+.toggle-text {
+  align-self: flex-end;
+  min-height: 44px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--fg);
+  font-size: 0.95rem;
+}
+
+.presets {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chip {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.ask-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.question-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 26px;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--fg);
+  font-size: 1.0625rem; /* ≥ 16px stops iOS zooming into the field */
+}
+
+.question-input::placeholder {
+  color: #aeaeb2;
+}
+
+.ask-button {
+  min-width: 88px;
+  padding: 12px 20px;
+}
+
+.secondary-button {
+  min-height: 44px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #000;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Calm "thinking" indicator: slow rotation, no flashing; static if reduced motion. */
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 8px;
+  vertical-align: -0.15em;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
