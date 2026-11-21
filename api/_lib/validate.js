@@ -32,12 +32,12 @@ export function validateResponse(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, error: 'not an object' };
   if (typeof data.answer !== 'string' || !data.answer.trim()) return { ok: false, error: 'missing answer' };
   // Missing optional-ish keys become null rather than rejecting a good answer.
-  data = { ...data, followup_question: data.followup_question ?? null, physics: data.physics ?? null };
+  data = { ...data, followup_question: data.followup_question ?? null, calc: data.calc ?? null };
   if (data.followup_question !== null && typeof data.followup_question !== 'string') {
     return { ok: false, error: 'followup_question must be string or null' };
   }
-  if (data.physics !== null && (typeof data.physics !== 'object' || Array.isArray(data.physics))) {
-    return { ok: false, error: 'physics must be object or null' };
+  if (data.calc !== null && (typeof data.calc !== 'object' || Array.isArray(data.calc))) {
+    return { ok: false, error: 'calc must be object or null' };
   }
   if (!Array.isArray(data.draw)) return { ok: false, error: 'draw must be an array' };
 
@@ -56,7 +56,7 @@ export function validateResponse(data) {
     value: {
       answer: data.answer,
       followup_question: data.followup_question,
-      physics: data.physics,
+      calc: data.calc,
       draw,
     },
   };

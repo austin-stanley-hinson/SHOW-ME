@@ -82,7 +82,8 @@ export async function askGemini(imageBase64, question, previous = null, mimeType
     // Strip code fences in case the model adds them anyway.
     data = JSON.parse(text.replace(/^\s*```(?:json)?|```\s*$/g, ''));
   } catch {
-    return { ok: false, error: 'Gemini did not return valid JSON' };
+    const finish = json?.candidates?.[0]?.finishReason;
+    return { ok: false, error: `Gemini did not return valid JSON (finish: ${finish}, ${text.length} chars)` };
   }
   return validateResponse(data);
 }

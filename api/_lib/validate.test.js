@@ -17,11 +17,11 @@ test('rejects missing required fields', () => {
   assert.equal(validateResponse('nope').ok, false);
 });
 
-test('missing followup_question / physics become null', () => {
+test('missing followup_question / calc become null', () => {
   const r = validateResponse({ answer: 'hi', draw: [] });
   assert.equal(r.ok, true);
   assert.equal(r.value.followup_question, null);
-  assert.equal(r.value.physics, null);
+  assert.equal(r.value.calc, null);
 });
 
 test('drops bad items, dedupes ids, clamps coords, caps at 12', () => {
@@ -33,7 +33,7 @@ test('drops bad items, dedupes ids, clamps coords, caps at 12', () => {
     { type: 'label', id: 'd', at: [0.5, 0.5] },
     ...Array.from({ length: 20 }, (_, i) => ({ type: 'point', id: `p${i}`, at: [0.5, 0.5] })),
   ];
-  const r = validateResponse({ answer: 'hi', followup_question: null, physics: null, draw });
+  const r = validateResponse({ answer: 'hi', followup_question: null, calc: null, draw });
   assert.equal(r.ok, true);
   assert.deepEqual(r.value.draw[0].at, [1, 0]);
   assert.equal(r.value.draw.length, 12);
