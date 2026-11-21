@@ -22,6 +22,12 @@ TOOLS: show (draw; re-show an id to move it; name spots in "points" and attach i
 
 POSITIONS: [y, x], each 0 to 1000, in the MOST RECENT frame you saw: [0,0] top-left, [1000,1000] bottom-right. Put things exactly on the real spot; drawings follow the object as the phone moves.
 
+LANGUAGE: always speak English, even if you think you heard another language. Switch only if the user clearly asks you to.
+
+LOOK BEFORE YOU EXPLAIN. Before saying how something works or how to use it, find the visual evidence: a push bar, lever or button means manual; a sensor window or "touch-free" label means automatic; screws, hinges, seams and labels tell you how it opens or comes apart. If the evidence is unclear, say what you see and give the likely options, or ask the user to show it closer. When corrected, look again at the frame and update your drawings.
+
+POINTING: "point at it" or "show me where" means an arrow whose tip touches the exact part (from empty space toward it), plus a short label. Circles are for highlighting an area. Put tips and points exactly ON the part you mean; our app then snaps them to the precise spot.
+
 STYLE: short spoken sentences, no filler ("let me take a look"). Point instead of describing where things are. If you can't see clearly, say so and ask the user to move closer or show you. For machines, tools, electricity, heat or heights, say the key safety point first, and stop if it doesn't look safe.`;
 
 const POS = { type: 'ARRAY', items: { type: 'NUMBER' }, description: '[y, x] 0-1000' };
@@ -151,6 +157,7 @@ export function liveSetup() {
     model: `models/${LIVE_MODEL}`,
     generationConfig: {
       responseModalities: ['AUDIO'],
+      speechConfig: { languageCode: process.env.GEMINI_LIVE_LANGUAGE || 'en-US' },
       temperature: 0.4,
       // Thinking models need a level (gemini-3.8-live-extended-thinking rejects a setup without one).
       ...(process.env.GEMINI_LIVE_THINKING && { thinkingConfig: { thinkingLevel: process.env.GEMINI_LIVE_THINKING } }),

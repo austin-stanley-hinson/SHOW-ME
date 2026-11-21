@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import handler from '../live-token.js';
+import pointHandler from '../point.js';
 import { createLiveTools } from '../../src/client/liveTools.js';
 
 const [framePath, ...questions] = process.argv.slice(2);
@@ -55,6 +56,19 @@ ws.onmessage = async (ev) => {
       if (update?.procedure) log('   PROCEDURE', JSON.stringify(update.procedure));
       if (update?.calc) for (const l of update.calc.result.lines) log('   CALC', l);
       if (response.error || response.dropped) log('   tool response:', JSON.stringify(response));
+      if (fc.name === 'show') {
+        const targets = tools.targetsFor(response.shown || [], (fc.args?.points || []).map((p) => p?.id).filter(Boolean));
+        if (targets.length) {
+          const t1 = Date.now();
+          const res = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(b) {
+            if (b.points) {
+              const s = tools.refine(b.points);
+              log(`   PRECISE (${Date.now() - t1} ms):`, b.points.map((p) => `${p.id} ${JSON.stringify(targets.find((x) => x.id === p.id)?.at)} -> ${JSON.stringify(p.at)}`).join('  '));
+            } else log('   precise failed:', JSON.stringify(b));
+          } };
+          pointHandler({ method: 'POST', body: { image: frame, targets } }, res);
+        }
+      }
       return { id: fc.id, name: fc.name, response };
     });
     ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));

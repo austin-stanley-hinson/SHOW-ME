@@ -17,6 +17,7 @@
 
 import { createLiveTools } from './liveTools.js';
 import { createSceneTracker } from '../tracking/sceneTracker.js';
+import { createDebugLog } from './debugLog.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
@@ -54,7 +55,11 @@ function toPcm16(float32, fromRate) {
 
 export async function startLive(opts) {
   const { video, onScene, onGesture, onProcedure, onCalc, onSaid, onHeard, onStatus = () => {}, onError = () => {} } = opts;
-  const status = (s) => onStatus(s);
+  const log = createDebugLog();
+  const status = (s) => {
+    log.event('status', s);
+    onStatus(s);
+  };
   status('connecting');
 
   // Audio must be created inside the user's tap on iOS.
@@ -64,7 +69,7 @@ export async function startLive(opts) {
 
   const tokenRes = await fetch('/api/live-token', { method: 'POST' });
   if (!tokenRes.ok) throw new Error(`token: HTTP ${tokenRes.status}`);
-  const { token } = await tokenRes.json();
+  const { token, model: LIVE_MODEL_NAME } = await tokenRes.json();
 
   const tools = createLiveTools();
 
@@ -72,6 +77,25 @@ export async function startLive(opts) {
   const st = createSceneTracker(video);
   let lastSentFrameId = -1;
   const trackedScene = () => st.current(tools.scene);
+  const sentFrames = new Map(); // frameId -> base64 JPEG (last few), for precise-point lookups
+
+  // Precise placement: ask /api/point where exactly each new thing is on the SAME frame, then snap to it.
+  async function refinePositions(frameId, targets) {
+    const image = sentFrames.get(frameId);
+    if (!image || !targets.length) return;
+    const t = Date.now();
+    try {
+      const r = await fetch('/api/point', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image, targets }) });
+      const j = await r.json();
+      log.event('refine', { frameId, targets, result: j, ms: Date.now() - t });
+      if (!r.ok || !j.points?.length || closed) return;
+      const scene = tools.refine(j.points);
+      st.place(scene, frameId);
+      onScene?.(scene);
+    } catch (e) {
+      log.event('refine-error', String(e.message || e));
+    }
+  }
   const ws = new WebSocket(`${WS_URL}?access_token=${encodeURIComponent(token)}`);
   let closed = false;
   let muted = false;
@@ -120,6 +144,9 @@ export async function startLive(opts) {
     frameCanvas.getContext('2d').drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
     const data = frameCanvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     send({ realtimeInput: { video: { data, mimeType: 'image/jpeg' } } });
+    sentFrames.set(lastSentFrameId, data);
+    if (sentFrames.size > 6) sentFrames.delete(sentFrames.keys().next().value);
+    log.frame(lastSentFrameId, data);
   }
 
   // ---- microphone ----
@@ -169,9 +196,14 @@ export async function startLive(opts) {
     if (m.toolCall) {
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
         const { response, update } = tools.handle(fc);
+        log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
           st.place(update.scene, lastSentFrameId);
           onScene?.(update.scene);
+          if (fc.name === 'show') {
+            const pointIds = (fc.args?.points || []).map((p) => p?.id).filter(Boolean);
+            refinePositions(lastSentFrameId, tools.targetsFor(response.shown || [], pointIds));
+          }
         }
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) onProcedure?.(update.procedure);
@@ -187,11 +219,15 @@ export async function startLive(opts) {
         said = '';
       }
       for (const p of sc.modelTurn?.parts || []) if (p.inlineData?.data) play(p.inlineData.data);
+      if (sc.turnComplete && said) log.event('said', said);
       if (sc.outputTranscription?.text) {
         said += sc.outputTranscription.text;
         onSaid?.(said, false);
       }
-      if (sc.inputTranscription?.text) onHeard?.(sc.inputTranscription.text);
+      if (sc.inputTranscription?.text) {
+        log.event('heard', sc.inputTranscription.text);
+        onHeard?.(sc.inputTranscription.text);
+      }
       if (sc.turnComplete && said) {
         onSaid?.(said, true);
         said = '';
@@ -207,6 +243,7 @@ export async function startLive(opts) {
   };
 
   function cleanup() {
+    clearInterval(sampleTimer);
     clearInterval(frameTimer);
     st.stop();
     stopPlayback();
@@ -214,8 +251,23 @@ export async function startLive(opts) {
     micStream?.getTracks().forEach((t) => t.stop());
   }
 
+  // Sample where the tracker shows each drawing, twice a second, for the debug report.
+  const sampleTimer = setInterval(() => {
+    const s = trackedScene();
+    if (!s.items.length) return;
+    log.event('tracked', {
+      quality: Math.round(s.tracking.quality * 100) / 100,
+      lost: s.tracking.lost,
+      items: s.items.map((i) => ({ id: i.id, at: i.at, from: i.from, to: i.to, stale: i.stale || undefined })),
+      points: s.points,
+    });
+  }, 500);
+
   return {
+    // Everything from the last ~90 s as a JSON-able object (frames stay on the phone until shared).
+    debugReport: (extra) => log.report({ model: LIVE_MODEL_NAME, video: { w: video.videoWidth, h: video.videoHeight }, ...extra }),
     say(text) {
+      log.event('typed', text);
       if (text) send({ realtimeInput: { text } });
     },
     mute(on) {

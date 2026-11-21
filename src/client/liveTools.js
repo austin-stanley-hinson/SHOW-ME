@@ -109,6 +109,46 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
 
   const HANDLERS = { show, remove, gesture, procedure, calc };
 
+  const words = (id) => id.replace(/_/g, ' ');
+  // What to look up precisely after a show: named points and spot-like items that were just added.
+  function targetsFor(shownIds, pointIds) {
+    const out = [];
+    for (const id of pointIds) {
+      const p = scene.points.find((x) => x.id === id);
+      if (!p) continue;
+      const user = scene.items.find((i) => Object.values(i.refs || {}).includes(id) && i.label);
+      out.push({ id, label: user ? `${user.label} (${words(id)})` : words(id), at: p.at });
+    }
+    for (const id of shownIds) {
+      const it = scene.items.find((i) => i.id === id);
+      if (it && Array.isArray(it.at) && ['circle', 'point', 'step'].includes(it.type)) out.push({ id, label: it.label || words(id), at: it.at });
+      // A labelled arrow with a numeric tip is pointing at something: snap the tip.
+      else if (it && it.type === 'arrow' && Array.isArray(it.to) && it.label && !it.refs?.to) out.push({ id, label: it.label, at: it.to });
+    }
+    return out.slice(0, 8);
+  }
+  // Snap points/items to precise positions [{ id, at }] (contract coords). Returns the new scene.
+  function refine(found) {
+    const byId = new Map(found.map((f) => [f.id, f.at]));
+    scene = {
+      ...scene,
+      points: scene.points.map((p) => (byId.has(p.id) ? { ...p, at: byId.get(p.id) } : p)),
+      items: scene.items.map((i) => {
+        if (!byId.has(i.id)) return i;
+        const at = byId.get(i.id);
+        if (Array.isArray(i.at)) return { ...i, at };
+        if (i.type === 'arrow' && Array.isArray(i.to)) {
+          // Move the whole arrow so its tip lands on the spot, keeping its direction and length.
+          const dx = at[0] - i.to[0], dy = at[1] - i.to[1];
+          const from = Array.isArray(i.from) ? [i.from[0] + dx, i.from[1] + dy] : i.from;
+          return { ...i, from, to: at };
+        }
+        return i;
+      }),
+    };
+    return scene;
+  }
+
   return {
     handle(fc) {
       const h = HANDLERS[fc?.name];
@@ -125,6 +165,8 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     get calc() {
       return calcResult;
     },
+    targetsFor,
+    refine,
     reset() {
       scene = emptyScene();
       calcResult = null;

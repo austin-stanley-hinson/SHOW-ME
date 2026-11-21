@@ -51,6 +51,13 @@ function text(ctx, s, x, y, color) {
   ctx.fillStyle = color || '#fff';
   ctx.fillText(s, x, y);
 }
+// "point" gesture: an arrow that slides in and taps the spot (not a ring).
+function pointer(ctx, p, ms) {
+  const bob = 6 * Math.sin(ms / 160);
+  const tip = [p[0] - 4, p[1] - 4];
+  const tail = [tip[0] - 70 - bob, tip[1] - 70 - bob];
+  arrow(ctx, tail, [tip[0] - bob * 0.3, tip[1] - bob * 0.3], '#ffffff', 6);
+}
 function ring(ctx, p, radius, color, width) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -132,14 +139,15 @@ function draw(now) {
       g2d.textAlign = 'start';
     }
     if (label) text(g2d, label, p[0] + 16, p[1] - 12, color);
-    if (active && (g.type === 'point' || g.type === 'circle')) ring(g2d, p, 26 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (active && g.type === 'circle') ring(g2d, p, 26 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (active && g.type === 'point') pointer(g2d, p, now - g.start);
   }
 
   // Gestures aimed at bare named points (not drawn as items).
   for (const [id, g] of gestures) {
     if (g.until < now || scene.items.some((i) => i.id === id)) continue;
     const p = toPx(id, r);
-    if (p) ring(g2d, p, 22 + 6 * Math.sin(now / 120), '#fff', 3);
+    if (p) (g.type === 'point' ? pointer(g2d, p, now - g.start) : ring(g2d, p, 22 + 6 * Math.sin(now / 120), '#fff', 3));
   }
   requestAnimationFrame(draw);
 }
@@ -208,6 +216,24 @@ $('mute').onclick = () => {
   const on = $('mute').textContent === 'Mute mic';
   live?.mute(on);
   $('mute').textContent = on ? 'Unmute' : 'Mute mic';
+};
+$('report').onclick = async () => {
+  if (!live) return;
+  const report = live.debugReport({ page: location.href });
+  const name = 'show-me-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+  const file = new File([JSON.stringify(report)], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'show me debug', text: 'show me debug' });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  a.click();
 };
 $('end').onclick = () => {
   live?.stop();
