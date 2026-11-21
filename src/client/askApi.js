@@ -4,6 +4,9 @@
 //   const result = await ask(canvas, 'Why isn't it falling?');
 //   if (result.ok) render(result.data) else showCaption(result.error);
 //
+// Follow-ups: pass the last turn so Gemini knows what "drywall" is answering:
+//   await ask(canvas, 'drywall', { question: lastQuestion, response: lastData });
+//
 // Set USE_FIXTURE = true to get the speaker example without calling Gemini (no key needed).
 
 import speakerFixture from '../../api/fixtures/speaker.json';
@@ -12,14 +15,15 @@ const USE_FIXTURE = false;
 const MAX_SIDE = 1024; // px; keeps the upload small and fast
 
 // canvas: an HTMLCanvasElement holding exactly what the user sees (same crop as the screen).
-export async function ask(canvas, question) {
+// previous (optional): { question, response } from the last successful ask.
+export async function ask(canvas, question, previous = null) {
   if (USE_FIXTURE) return { ok: true, data: speakerFixture };
 
   try {
     const res = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: toJpegBase64(canvas), question }),
+      body: JSON.stringify({ image: toJpegBase64(canvas), question, ...(previous && { previous }) }),
     });
     const data = await res.json();
     if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };

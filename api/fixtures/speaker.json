@@ -18,6 +18,26 @@
   "draw": [
     {
       "type": "point",
+      "id": "bolt_top",
+      "at": [
+        0.25,
+        0.4
+      ],
+      "label": "Top bolt",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "point",
+      "id": "bolt_bottom",
+      "at": [
+        0.25,
+        0.6
+      ],
+      "label": "Bottom bolt",
+      "color": "#0a84ff"
+    },
+    {
+      "type": "point",
       "id": "center_of_mass",
       "at": [
         0.62,

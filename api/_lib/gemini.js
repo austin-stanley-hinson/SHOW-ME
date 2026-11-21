@@ -3,25 +3,41 @@
 
 import { SYSTEM_PROMPT } from './prompt.js';
 import { validateResponse } from './validate.js';
+import { RESPONSE_SCHEMA } from './schema.js';
 
 const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 const URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 // imageBase64: JPEG as base64, no "data:" prefix.
+// previous (optional): { question, response } from the last turn, so follow-up answers have context.
 // Returns { ok: true, value } or { ok: false, error }.
-export async function askGemini(imageBase64, question) {
+export async function askGemini(imageBase64, question, previous = null) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, error: 'GEMINI_API_KEY is not set' };
+
+  // The earlier image is not resent; Gemini sees the earlier question and its own JSON reply.
+  const history =
+    previous && typeof previous.question === 'string' && previous.response
+      ? [
+          { role: 'user', parts: [{ text: previous.question.slice(0, 500) }] },
+          { role: 'model', parts: [{ text: JSON.stringify(previous.response).slice(0, 8000) }] },
+        ]
+      : [];
 
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [
+      ...history,
       {
         role: 'user',
         parts: [{ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } }, { text: question }],
       },
     ],
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.3 },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: RESPONSE_SCHEMA,
+      temperature: 0.3,
+    },
   };
 
   let res;
