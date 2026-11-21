@@ -21,6 +21,8 @@
   button { padding: 0 16px; background: #fff; color: #000; font-weight: 700; }
   button.alt { background: #2a2f36; color: #fff; }
   input { flex: 1; padding: 0 12px; background: #1b1f24; color: #fff; min-width: 0; }
+  #talk { display: none; width: 100%; min-height: 64px; margin-top: 8px; font-size: 18px; background: #ffcc00; color: #000; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #talk.on { background: #34c759; }
   #start { position: fixed; inset: 0; display: grid; place-items: center; background: #000; z-index: 5; text-align: center; padding: 24px; }
   #start button { font-size: 20px; min-height: 64px; padding: 0 32px; background: var(--accent); }
   #start p { color: var(--muted); max-width: 32ch; margin: 16px auto 0; }
@@ -33,6 +35,7 @@
   <div id="said"></div>
   <div id="heard"></div>
   <div id="math"></div>
+  <button id="talk">Hold to talk</button>
   <div id="row"><input id="typed" placeholder="…or type a question" enterkeyhint="send" /><button id="send">Send</button></div>
 </div>
 <div id="start"><div><button id="go">Start live</button><p>Point the camera at something and just talk. It watches, answers out loud and draws on what it sees. Uses the camera and microphone.</p></div></div>

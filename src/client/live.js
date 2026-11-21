@@ -54,6 +54,7 @@ function toPcm16(float32, fromRate) {
 }
 
 export async function startLive(opts) {
+  const { pushToTalk = false } = opts;
   const { video, onScene, onGesture, onProcedure, onCalc, onSaid, onHeard, onStatus = () => {}, onError = () => {} } = opts;
   const log = createDebugLog();
   let lastStatus = null;
@@ -70,7 +71,11 @@ export async function startLive(opts) {
   const ctx = new AC();
   await ctx.resume();
 
-  const tokenRes = await fetch('/api/live-token', { method: 'POST' });
+  const tokenRes = await fetch('/api/live-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pushToTalk }),
+  });
   if (!tokenRes.ok) throw new Error(`token: HTTP ${tokenRes.status}`);
   const { token, model: LIVE_MODEL_NAME } = await tokenRes.json();
 
@@ -130,6 +135,7 @@ export async function startLive(opts) {
   const ws = new WebSocket(`${WS_URL}?access_token=${encodeURIComponent(token)}`);
   let closed = false;
   let muted = false;
+  let talking = false;
   let frameTimer = null;
   let micStream = null;
   let micNode = null;
@@ -194,7 +200,7 @@ export async function startLive(opts) {
     let pending = [];
     let pendingLen = 0;
     micNode.port.onmessage = (e) => {
-      if (muted) return;
+      if (muted || (pushToTalk && !talking)) return;
       pending.push(e.data);
       pendingLen += e.data.length;
       if (pendingLen < ctx.sampleRate / 10) return; // send ~100 ms chunks
@@ -357,6 +363,21 @@ export async function startLive(opts) {
       log.event('typed', text);
       if (text) send({ realtimeInput: { text } });
     },
+    // Push-to-talk: call talkStart() when the button goes down and talkEnd() when it comes up.
+    talkStart() {
+      if (!pushToTalk || talking) return;
+      talking = true;
+      stopPlayback(); // talking over the assistant interrupts it
+      send({ realtimeInput: { activityStart: {} } });
+      log.event('talk', 'start');
+    },
+    talkEnd() {
+      if (!pushToTalk || !talking) return;
+      talking = false;
+      setTimeout(() => send({ realtimeInput: { activityEnd: {} } }), 150); // let the last mic chunk go out
+      log.event('talk', 'end');
+    },
+    pushToTalk,
     mute(on) {
       muted = Boolean(on);
     },

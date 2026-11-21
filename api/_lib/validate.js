@@ -6,6 +6,7 @@ const TYPES = {
   line: ['from', 'to'],
   point: ['at'],
   circle: ['at'],
+  rotate: ['at'], // curved arrow around a spot: dir 'cw' | 'ccw', r like circle
   label: ['at'],
   step: ['at'],
   panel: ['at'],
@@ -92,6 +93,10 @@ function cleanItem(item, points) {
     }
   }
   if (item.type === 'circle') out.r = Math.min(0.3, Math.max(0.01, item.r));
+  if (item.type === 'rotate') {
+    out.r = Number.isFinite(item.r) && item.r > 0 ? Math.min(0.3, Math.max(0.02, item.r)) : 0.06;
+    out.dir = item.dir === 'ccw' ? 'ccw' : 'cw';
+  }
   if (Object.keys(refs).length) out.refs = refs;
   return out;
 }

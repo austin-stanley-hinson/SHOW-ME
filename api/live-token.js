@@ -25,7 +25,7 @@ export default async function handler(req, res) {
         uses: 1,
         expireTime: expiresAt,
         newSessionExpireTime: new Date(now + 2 * 60_000).toISOString(), // must connect within 2 min
-        bidiGenerateContentSetup: liveSetup(),
+        bidiGenerateContentSetup: liveSetup({ pushToTalk: req.body?.pushToTalk === true }),
       }),
       signal: AbortSignal.timeout(10_000),
     });

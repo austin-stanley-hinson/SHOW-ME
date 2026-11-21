@@ -44,7 +44,7 @@ function withPointRefs(item, pointIds) {
     const tip = Array.isArray(out.to) ? out.to : null; // [y, x] 0-1000
     if (tip) out.from = [Math.max(0, tip[0] - 120), Math.max(0, tip[1] - 120)];
   }
-  if (out.type === 'circle' && !(Number.isFinite(out.r) && out.r > 0)) out.r = 45; // live: default ring size (0-1000 units)
+  if ((out.type === 'circle' || out.type === 'rotate') && !(Number.isFinite(out.r) && out.r > 0)) out.r = out.type === 'rotate' ? 60 : 45; // live: default size (0-1000 units)
   for (const [ref, field] of POS_REFS) {
     if (typeof out[ref] === 'string' && out[ref]) out[field] = out[ref];
     delete out[ref];
@@ -183,7 +183,7 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     for (const id of shownIds) {
       const it = scene.items.find((i) => i.id === id);
       if (!it) continue;
-      if (Array.isArray(it.at) && ['circle', 'point', 'step'].includes(it.type)) {
+      if (Array.isArray(it.at) && ['circle', 'rotate', 'point', 'step'].includes(it.type)) {
         if (!it.refs?.at) out.push({ id, label: it.label || labelAt(it.at, id) || stem(id), at: it.at });
       } else if (it.type === 'arrow') {
         // Snap the end that touches the part (unless that end is a named point, which is looked up itself).

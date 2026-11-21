@@ -135,3 +135,15 @@ test('pointing arrows snap the tip; explicit anchor wins; circles given from_poi
   const w = s.items.find((i) => i.id === 'w');
   assert.ok(Math.abs(w.from[0] - 0.52) < 1e-9 && Math.abs(w.to[1] - 0.62) < 1e-9); // rigid shift from the tail
 });
+
+test('rotate: curved arrow for twisting; snapped like a circle; push-to-talk setup', async () => {
+  const t = createLiveTools();
+  t.handle({ name: 'show', args: { items: [{ type: 'rotate', id: 'twist', at: [500, 600], dir: 'ccw', label: 'unscrew the grip' }] } });
+  const it = t.scene.items[0];
+  assert.equal(it.dir, 'ccw');
+  assert.equal(it.r, 0.06);
+  assert.deepEqual(t.targetsFor(['twist'], []).map((x) => x.id), ['twist']);
+  const { liveSetup } = await import('../../api/_lib/live.js');
+  assert.equal(liveSetup().realtimeInputConfig, undefined);
+  assert.deepEqual(liveSetup({ pushToTalk: true }).realtimeInputConfig, { automaticActivityDetection: { disabled: true } });
+});

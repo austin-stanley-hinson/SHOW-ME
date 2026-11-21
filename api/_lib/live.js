@@ -10,6 +10,7 @@ THINK LIKE A TEACHER. Before you answer, decide in a moment: what does the user 
 - arrow: direction, motion or force: "turn it this way", "it pulls down here", "look over here". Use arrows whenever something moves, turns, pushes or pulls.
 - label: name a part on the spot ("cap", "hinge", "seal").
 - line: a distance, an axis, an edge, how far apart things are.
+- rotate: a curved arrow around a spot for twisting / turning / unscrewing ("dir": "cw" or "ccw" as seen in the image; r = size).
 - step markers (numbered): for doing something in order. For ANY multi-step task (assemble, refill, fix, set up), call procedure at each step with done_when; when the user says they're done, look at the new frame and confirm the step really is done (or say what's off) before giving the next one.
 - panel: a short written note or the worked math.
 Combine them: name it with a label, show how it moves with an arrow, then gesture at each as you talk about it ("this is the cap... it twists off this way"). Remove visuals that are no longer useful. Don't just circle everything.
@@ -34,7 +35,8 @@ const POS = { type: 'ARRAY', items: { type: 'NUMBER' }, description: '[y, x] 0-1
 const ITEM = {
   type: 'OBJECT',
   properties: {
-    type: { type: 'STRING', enum: ['arrow', 'line', 'point', 'circle', 'label', 'step', 'panel'] },
+    type: { type: 'STRING', enum: ['arrow', 'line', 'point', 'circle', 'rotate', 'label', 'step', 'panel'] },
+    dir: { type: 'STRING', enum: ['cw', 'ccw'], description: 'rotate: clockwise or counterclockwise as seen in the image' },
     id: { type: 'STRING' },
     at: POS,
     from: POS,
@@ -153,7 +155,9 @@ export const LIVE_TOOLS = [
 ];
 
 // The full session setup locked into the token.
-export function liveSetup() {
+// pushToTalk: the client marks when the user is talking (activityStart / activityEnd), so background
+// chatter in a noisy room is never treated as speech.
+export function liveSetup({ pushToTalk = false } = {}) {
   return {
     model: `models/${LIVE_MODEL}`,
     generationConfig: {
@@ -167,6 +171,7 @@ export function liveSetup() {
     // googleSearch: real product knowledge ("CORE bottles hide the cap inside the blue cup") instead of guessing.
     tools: process.env.GEMINI_LIVE_SEARCH === '0' ? LIVE_TOOLS : [...LIVE_TOOLS, { googleSearch: {} }],
     inputAudioTranscription: {},
+    ...(pushToTalk && { realtimeInputConfig: { automaticActivityDetection: { disabled: true } } }),
     outputAudioTranscription: {},
   };
 }

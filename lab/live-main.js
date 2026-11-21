@@ -4,6 +4,8 @@ import { startLive } from '../src/client/live.js';
 import { formatLabel } from '../src/physics/calc.js';
 
 const $ = (id) => document.getElementById(id);
+// Hold-to-talk by default: in a noisy room, only what you say while holding the button is heard.
+const PTT = new URLSearchParams(location.search).get('ptt') !== '0';
 const video = $('video');
 const canvas = $('overlay');
 const g2d = canvas.getContext('2d');
@@ -87,6 +89,25 @@ function pointer(ctx, p, ms) {
   const tail = [tip[0] - 70 - bob, tip[1] - 70 - bob];
   arrow(ctx, tail, [tip[0] - bob * 0.3, tip[1] - bob * 0.3], '#ffffff', 6);
 }
+// Curved arrow around a spot: twisting / turning. Spins slowly so the direction is obvious.
+function rotateArrow(ctx, p, radius, ccw, color, now) {
+  const spin = ((now / 1400) % 1) * Math.PI * 2 * (ccw ? -1 : 1);
+  const a0 = spin, a1 = spin + (ccw ? -1 : 1) * Math.PI * 1.5;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(p[0], p[1], radius, a0, a1, ccw);
+  ctx.stroke();
+  const tip = [p[0] + radius * Math.cos(a1), p[1] + radius * Math.sin(a1)];
+  const tangent = a1 + (ccw ? -Math.PI / 2 : Math.PI / 2);
+  ctx.beginPath();
+  ctx.moveTo(tip[0] + 14 * Math.cos(tangent), tip[1] + 14 * Math.sin(tangent));
+  ctx.lineTo(tip[0] + 9 * Math.cos(tangent + 2.2), tip[1] + 9 * Math.sin(tangent + 2.2));
+  ctx.lineTo(tip[0] + 9 * Math.cos(tangent - 2.2), tip[1] + 9 * Math.sin(tangent - 2.2));
+  ctx.closePath();
+  ctx.fill();
+}
 function ring(ctx, p, radius, color, width) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -151,6 +172,7 @@ function draw(now) {
       continue;
     }
     if (it.type === 'circle') ring(g2d, p, (it.r || 0.04) * r.w * pulse, color, 4);
+    if (it.type === 'rotate') rotateArrow(g2d, p, (it.r || 0.06) * r.w * pulse, it.dir === 'ccw', color, now);
     if (it.type === 'point') {
       g2d.fillStyle = color;
       g2d.beginPath();
@@ -205,6 +227,7 @@ $('go').onclick = async () => {
     await openCamera();
     live = await startLive({
       video,
+      pushToTalk: PTT,
       onScene: () => {},
       onGesture: (g) => {
         const t = performance.now();
@@ -233,12 +256,32 @@ $('go').onclick = async () => {
       },
     });
     $('start').style.display = 'none';
+    if (PTT) $('talk').style.display = 'block';
     requestAnimationFrame(draw);
   } catch (e) {
     $('go').disabled = false;
     $('start').querySelector('p').textContent = 'Could not start: ' + e.message;
   }
 };
+{
+  const talk = $('talk');
+  const down = (e) => {
+    e.preventDefault();
+    live?.talkStart();
+    talk.classList.add('on');
+    talk.textContent = 'Listening… release when done';
+  };
+  const up = (e) => {
+    e.preventDefault();
+    live?.talkEnd();
+    talk.classList.remove('on');
+    talk.textContent = 'Hold to talk';
+  };
+  talk.addEventListener('pointerdown', down);
+  talk.addEventListener('pointerup', up);
+  talk.addEventListener('pointercancel', up);
+  talk.addEventListener('pointerleave', (e) => talk.classList.contains('on') && up(e));
+}
 $('send').onclick = () => {
   live?.say($('typed').value.trim());
   $('typed').value = '';
