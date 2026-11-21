@@ -31,7 +31,11 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
   const tr = opts.topRight;
   if (tr?.w && tr?.h) env.placed.push({ l: w - tr.w, t: 0, r: w, b: tr.h });
 
-  for (const item of scene.items) SHAPES[item.type]?.(env, item);
+  // Lines, arrows and circles first, then point/step markers on top, so a marker's number is
+  // never hidden under an arrow that starts on it (array order otherwise).
+  const isMarker = (i) => i.type === 'point' || i.type === 'step';
+  for (const item of scene.items) if (!isMarker(item)) SHAPES[item.type]?.(env, item);
+  for (const item of scene.items) if (isMarker(item)) SHAPES[item.type]?.(env, item);
   env.shapeBoxes = scene.items
     .filter((i) => i.from && i.to)
     .map((i) => {
@@ -41,7 +45,11 @@ export function drawScene(ctx, scene, w, h, opts = {}) {
     });
   // Markers are obstacles for labels.
   for (const item of scene.items) {
-    if (item.type === 'step' || item.type === 'point') {
+    if (item.type === 'circle') {
+      const [x, y] = env.P(item.at);
+      const r = item.r * w;
+      env.placed.push({ l: x - r, t: y - r, r: x + r, b: y + r });
+    } else if (item.type === 'step' || item.type === 'point') {
       const [x, y] = env.P(item.at);
       const r = (item.type === 'step' ? 17 : 8) * s;
       env.placed.push({ l: x - r, t: y - r, r: x + r, b: y + r });
@@ -75,6 +83,18 @@ const SHAPES = {
   point(env, it) {
     circle(env, env.P(it.at), 8 * env.s, it.color);
   },
+  circle(env, it) {
+    const { ctx, s } = env;
+    const [x, y] = env.P(it.at);
+    const r = Math.max(10 * s, it.r * env.w);
+    for (const [color, width] of [[OUTLINE, 7 * s], [it.color, 4 * s]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+  },
   step(env, it) {
     const { ctx, s } = env;
     const [x, y] = env.P(it.at);
@@ -92,6 +112,18 @@ const SHAPES = {
 // (which edge of the pill sits at anchorX). Vertically the pill is centered on anchorY.
 
 const LABELS = {
+  circle(env, it) {
+    if (!it.text) return;
+    const [x, y] = env.P(it.at);
+    const r = Math.max(10 * env.s, it.r * env.w);
+    const g = r + 8 * env.s;
+    placePill(env, it.text, it.color, [
+      [x + g, y, 'left'],
+      [x - g, y, 'right'],
+      [x, y - g - 6 * env.s, 'center'],
+      [x, y + g + 6 * env.s, 'center'],
+    ]);
+  },
   point(env, it) {
     if (!it.text) return;
     const [x, y] = env.P(it.at);
@@ -233,8 +265,10 @@ function drawPanel(env, it) {
   };
   if (it.title) add(titleFont, '#ffffff', it.title, 0);
   // Non-physics panels have no math, so their text is the content.
-  const body = it.lines.length ? it.lines : it.isPhysics ? [] : [it.body];
-  body.forEach((l, i) => add(lineFont, it.lines.length ? '#ffcc00' : '#e5e5ea', l, i === 0 && it.title ? 4 * s : 0));
+  // Calc panels: the checked lines (✓ yellow, ⚠ orange). Other panels: their text.
+  const body = it.lines.length ? it.lines : it.isCalc ? [] : [it.body];
+  const lineColor = (l) => (!it.lines.length ? '#e5e5ea' : l.includes('⚠') ? '#ff9f0a' : '#ffcc00');
+  body.forEach((l, i) => add(lineFont, lineColor(l), l, i === 0 && it.title ? 4 * s : 0));
   if (!rows.length) return;
 
   const inner = Math.max(

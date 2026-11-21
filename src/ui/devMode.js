@@ -1,23 +1,30 @@
 // Dev/test switches from the URL, so the renderer can be tested without Gemini or a camera.
-//   ?fixture=speaker | tripod   → answers come from api/fixtures (no network, no key)
-//   &nocam=1                    → no camera; a placeholder frame is frozen right away
+//   ?fixture=chair | what | fold | fold-live | nothing   → answers come from api/fixtures/v3
+//   &nocam=1                                             → no camera; a placeholder frame is frozen
 //
+// Fixtures are raw model output, so they go through the server's validator first (it resolves
+// point ids to coordinates), exactly like a real /api/ask answer.
 // Production use has no query string, so none of this is active.
 
-import speaker from '../../api/fixtures/speaker.json';
-import tripod from '../../api/fixtures/tripod.json';
+import { validateResponse } from '../../api/_lib/validate.js';
+import chair from '../../api/fixtures/v3/chair-tip.json';
+import what from '../../api/fixtures/v3/what-is-this.json';
+import fold from '../../api/fixtures/v3/fold-step1.json';
+import foldLive from '../../api/fixtures/v3/fold-live-gemini.json';
+import nothing from '../../api/fixtures/v3/nothing.json';
 
-const FIXTURES = { speaker, tripod };
+const FIXTURES = { chair, what, fold, 'fold-live': foldLive, nothing };
 const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
 
 export const fixtureName = FIXTURES[params.get('fixture')] ? params.get('fixture') : null;
 export const noCamera = params.get('nocam') === '1';
 
 export function fixtureAnswer() {
-  return new Promise((resolve) => setTimeout(() => resolve({ ok: true, data: FIXTURES[fixtureName] }), 1200));
+  const v = validateResponse(structuredClone(FIXTURES[fixtureName]));
+  const result = v.ok ? { ok: true, data: v.value } : { ok: false, error: v.error };
+  return new Promise((resolve) => setTimeout(() => resolve(result), 1200));
 }
 
-// A neutral stand-in for a camera frame, sized like the screen.
 export function placeholderFrame(w, h) {
   const c = document.createElement('canvas');
   c.width = w;

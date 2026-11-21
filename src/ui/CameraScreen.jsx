@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { captureFrame } from '../camera/captureFrame.js';
 import { ask } from '../client/askApi.js';
+import { emptyScene, applyResponse, previousFor } from '../client/view.js';
 import { buildScene } from '../overlay/scene.js';
 import AnnotationLayer from '../overlay/AnnotationLayer.jsx';
 import { fixtureName, fixtureAnswer, placeholderFrame } from './devMode.js';
@@ -9,7 +10,8 @@ const PRESETS = ['Why isn’t it falling?', 'How do I use this?', 'What is this?
 const ERROR_CAPTION = 'Sorry, I couldn’t figure that out. Try again.';
 
 // Live camera → Ask freezes the frame → "Looking…" → answer drawn on the frozen frame.
-// Further questions while frozen go to the same frame (with the previous turn as context).
+// Further questions while frozen go to the same frame. The view is a persistent scene
+// (src/client/view.js): the AI sees what's on screen and can add, move or remove items.
 // stream may be null in ?nocam=1 dev mode: a placeholder frame is used instead.
 export default function CameraScreen({ stream, orientation }) {
   const videoRef = useRef(null);
@@ -18,7 +20,7 @@ export default function CameraScreen({ stream, orientation }) {
   const [frame, setFrame] = useState(null); // frozen canvas, or null when live
   const [status, setStatus] = useState('live'); // live | thinking | result | error
   const [scene, setScene] = useState(null);
-  const [lastTurn, setLastTurn] = useState(null);
+  const [view, setView] = useState(emptyScene);
   const [question, setQuestion] = useState('');
   const [errorDetail, setErrorDetail] = useState('');
   const [textHidden, setTextHidden] = useState(false);
@@ -91,13 +93,12 @@ export default function CameraScreen({ stream, orientation }) {
     }
 
     const id = ++requestId.current;
-    setStatus('thinking');
-    setScene(null);
+    setStatus('thinking'); // the current drawings stay up while the follow-up is answered
     setErrorDetail('');
     setQuestion('');
     setCaption(`Looking… “${q}”`);
 
-    const result = fixtureName ? await fixtureAnswer() : await ask(canvas, q, lastTurn);
+    const result = fixtureName ? await fixtureAnswer() : await ask(canvas, q, previousFor(view));
     if (id !== requestId.current) return; // user went back to live meanwhile
 
     if (!result.ok) {
@@ -106,20 +107,21 @@ export default function CameraScreen({ stream, orientation }) {
       setErrorDetail(result.error || '');
       return;
     }
-    const next = buildScene(result.data);
+    const nextView = applyResponse(view, result.data, q);
+    const next = buildScene(result.data, nextView.items);
+    setView(nextView);
     setScene(next);
     setTextHidden(false);
     setDrawingsHidden(false);
     setStatus('result');
     setCaption(next.answer || 'Here’s what I found.');
-    setLastTurn({ question: q, response: result.data });
   }
 
   function handleLive() {
     requestId.current++;
     if (stream) setFrame(null);
     setScene(null);
-    setLastTurn(null);
+    setView(emptyScene());
     setErrorDetail('');
     setStatus('live');
     setCaption('Point at something and ask a question.');
@@ -166,9 +168,10 @@ export default function CameraScreen({ stream, orientation }) {
 
       <div className="bottom-bar" ref={barRef}>
         <div className="caption-area" hidden={textHidden}>
+          {scene?.title && !thinking && <p className="answer-title">{scene.title}</p>}
           <p className="caption" role="status" aria-live="polite">
             {thinking && <span className="spinner" aria-hidden="true" />}
-            {caption}
+            {status === 'result' && scene ? <AnswerText parts={scene.answerParts} fallback={caption} /> : caption}
           </p>
           {errorDetail && <p className="caption-detail">({errorDetail})</p>}
 
@@ -188,7 +191,7 @@ export default function CameraScreen({ stream, orientation }) {
             </ol>
           )}
 
-          {scene?.hasPhysics && <PhysicsText scene={scene} />}
+          {scene?.hasCalc && <CalcText scene={scene} />}
         </div>
 
         {!thinking && !scene && !textHidden && (
@@ -233,23 +236,49 @@ export default function CameraScreen({ stream, orientation }) {
   );
 }
 
-// Explanation + assumptions are always visible here (the canvas panel shows only the math).
-// The math is repeated for screen readers, and shown visibly if no panel drew it.
-function PhysicsText({ scene }) {
-  const { physics, explanation, physicsPanelDrawn } = scene;
+// The answer, with numbers the checker couldn't trace to the calc marked (CONTRACT v3).
+function AnswerText({ parts, fallback }) {
+  if (!parts.length) return fallback;
+  return parts.map((p, i) =>
+    p.unchecked ? (
+      <mark key={i} className="unchecked" title="This number wasn’t checked">
+        {p.text}
+        <span className="sr-only"> (not checked)</span>
+      </mark>
+    ) : (
+      p.text
+    ),
+  );
+}
+
+// Verdict + check status + explanation + assumptions are always visible here (the canvas panel
+// shows only the math). The math is repeated for screen readers, and shown visibly if no panel drew it.
+function CalcText({ scene }) {
+  const { calc, explanation, calcPanelDrawn } = scene;
+  const v = calc.verdict;
   return (
     <div className="physics-text">
+      {v?.text && (
+        <p className={`verdict ${v.check === 'mismatch' ? 'warn' : ''}`}>
+          {v.check === 'mismatch' ? `⚠ The AI said “${v.text}”, but the numbers say: ${v.expected}` : `${v.text}${v.check === 'ok' ? ' ✓' : ''}`}
+        </p>
+      )}
+      {calc.ok && (
+        <p className={`check-status ${calc.verified ? 'ok' : 'warn'}`}>
+          {calc.verified
+            ? '✓ Math checked: every step re-computed by our code'
+            : `⚠ ${calc.mismatches.length} step${calc.mismatches.length === 1 ? '' : 's'} didn’t check out (marked ⚠)`}
+        </p>
+      )}
       {explanation && <p className="explanation">{explanation}</p>}
-      {physics.lines.length > 0 && (
-        <ul className={physicsPanelDrawn ? 'sr-only' : undefined}>
-          {physics.lines.map((l) => (
+      {calc.lines.length > 0 && (
+        <ul className={calcPanelDrawn ? 'sr-only' : undefined}>
+          {calc.lines.map((l) => (
             <li key={l}>{l}</li>
           ))}
         </ul>
       )}
-      {physics.assumptions.length > 0 && (
-        <p className="assumptions">Estimates are based on: {physics.assumptions.join('; ')}</p>
-      )}
+      {calc.assumptions.length > 0 && <p className="assumptions">Estimates are based on: {calc.assumptions.join('; ')}</p>}
     </div>
   );
 }

@@ -341,3 +341,36 @@ body,
   width: 44px;
   font-size: 1.1rem;
 }
+
+/* v3 answer extras: title, verdict, check status, unchecked numbers */
+.answer-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+}
+
+.physics-text .verdict {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.physics-text .check-status {
+  margin-top: 4px;
+  font-size: 0.95rem;
+  color: #30d158;
+}
+
+.physics-text .warn {
+  color: #ff9f0a;
+}
+
+mark.unchecked {
+  background: none;
+  color: #ff9f0a;
+  text-decoration: underline wavy;
+  text-underline-offset: 3px;
+}
