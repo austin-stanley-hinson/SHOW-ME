@@ -23,16 +23,15 @@ Stack: Vite + React, three.js, a server endpoint that calls Gemini, and Vercel h
 
 Each lane owns certain files. **Only edit files your lane owns.** If you need a change in another lane's file, stop and tell your human what the change is so they can pass it to the owner. Don't make the edit yourself.
 
-> Humans: replace `TBD` with the teammate's name.
 
 | Lane | Owner | Files |
 |---|---|---|
 | **A: Client / Renderer** | Austin | `src/camera/`, `src/orientation/`, `src/overlay/` (three.js), `src/ui/`, `src/App.jsx`, `src/main.jsx`, `index.html`, `src/styles/` |
-| **B: Server / Gemini / Math** | TBD | `api/` (server endpoint + Gemini prompt), `server/` (Vultr version), `src/physics/`, `src/client/askApi.js` (fetch wrapper) |
+| **B: Server / Gemini / Math** | Josh | `api/` (server endpoint + Gemini prompt), `server/` (Vultr version), `src/physics/`, `src/client/askApi.js` (fetch wrapper) |
 | **Shared (both must agree)** | both | `CONTRACT.md`, `package.json`, `package-lock.json`, `vite.config.js`, `vercel.json`, `.gitignore`, `CLAUDE.md`, `README.md` |
 
 Rules for shared files:
-- **`CONTRACT.md` is the contract between the lanes.** Change it only in its own PR, after both humans agree. Bump the version in its title, and say what changed in the PR description.
+- **`CONTRACT.md` is the contract between the lanes.** Change it only in its own PR, after both humans agree. Bump the version in its title, and say what changed in the PR description. Update the Gemini schema (`api/_lib/schema.js`) in the same PR so the two never disagree.
 - **Dependencies:** keep `package.json` changes in a small commit of their own (`chore(deps): add X`). Merge it to `main` quickly so the other lane can rebase. If `package-lock.json` conflicts, don't hand-merge it: take `main`'s version and run `npm install` again.
 - **New folders** belong to the lane that creates them. Add them to the table above in the same PR.
 
