@@ -59,8 +59,9 @@ export default function CameraScreen({ stream, orientation }) {
   }, [frame]);
 
   async function handleAsk(text) {
-    const q = (text ?? question).trim();
-    if (!q || status === 'thinking') return;
+    // Empty box → a sensible default, so Ask always does something.
+    const q = (text ?? question).trim() || 'What is this?';
+    if (status === 'thinking') return;
 
     let canvas = frame;
     if (!canvas) {
@@ -183,7 +184,7 @@ export default function CameraScreen({ stream, orientation }) {
             onChange={(e) => setQuestion(e.target.value)}
             disabled={thinking}
           />
-          <button type="submit" className="big-button ask-button" disabled={thinking || !question.trim()}>
+          <button type="submit" className="big-button ask-button" disabled={thinking}>
             Ask
           </button>
         </form>
