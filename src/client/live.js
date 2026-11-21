@@ -137,6 +137,29 @@ export async function startLive(opts) {
   let muted = false;
   // ---- watching (hands-free): periodic auto-check turns while a procedure step is active ----
   const WATCH_EVERY_MS = 4000;
+  // Only auto-check when the view has visibly changed since the step was given / last checked: in testing,
+  // an unchanged frame once got a false "done" and the procedure advanced. Tiny grayscale thumbnails, mean
+  // absolute difference 0-255.
+  const CHANGE_MIN = 8;
+  const thumbCanvas = document.createElement('canvas');
+  let baseThumb = null;
+  function thumb() {
+    if (!video.videoWidth) return null;
+    thumbCanvas.width = 32;
+    thumbCanvas.height = 24;
+    const c = thumbCanvas.getContext('2d', { willReadFrequently: true });
+    c.drawImage(video, 0, 0, 32, 24);
+    const d = c.getImageData(0, 0, 32, 24).data;
+    const g = new Uint8Array(32 * 24);
+    for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    return g;
+  }
+  const changeSince = (a, b) => {
+    if (!a || !b) return Infinity;
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
+    return sum / a.length;
+  };
   let watching = false;
   let step = null; // the latest procedure from the model
   let busy = false; // a turn is in progress (we asked, or the user spoke)
@@ -269,6 +292,7 @@ export async function startLive(opts) {
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) {
           step = update.procedure;
+          baseThumb = thumb(); // what the scene looked like when this step was given
           onProcedure?.(update.procedure);
         }
         if (update?.wait) log.event('watch-quiet', update.wait.seen);
@@ -339,10 +363,14 @@ export async function startLive(opts) {
     if (!step || step.complete) return;
     if (Date.now() - lastTurnEnd < WATCH_EVERY_MS) return;
     if (st.tracker.motion > 6) return; // wait for the view to settle
+    const now = thumb();
+    const changed = changeSince(baseThumb, now);
+    if (changed < CHANGE_MIN) return; // nothing visibly happened: no point asking (and no false "done")
+    baseThumb = now; // next check needs a further change
     autoTurn = { audio: [], decided: null };
     busy = true;
     const check = `[auto-check] Step ${step.current}${step.total ? ' of ' + step.total : ''}${step.done_when ? ': done when ' + step.done_when : ''}.`;
-    log.event('watch-check', check);
+    log.event('watch-check', { check, changed: Math.round(changed) });
     send({ realtimeInput: { text: check } });
     // If no reply comes, don't stay stuck.
     setTimeout(() => {
