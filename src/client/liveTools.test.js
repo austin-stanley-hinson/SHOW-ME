@@ -41,7 +41,7 @@ test('precise points: targets for new spots, refine snaps them', () => {
   const t = createLiveTools();
   t.handle({ name: 'show', args: { points: [{ id: 'push_bar', at: [620, 480] }], items: [{ type: 'arrow', id: 'a', from: [800, 300], to_point: 'push_bar', label: 'Press here' }, { type: 'circle', id: 'c', at: [400, 400] }, { type: 'label', id: 'l', at: [100, 100], label: 'Soap' }] } });
   const targets = t.targetsFor(['a', 'c', 'l'], ['push_bar']);
-  assert.deepEqual(targets.map((x) => x.id), ['push_bar', 'c']); // labels aren't snapped; an arrow aimed at a point follows that point
+  assert.deepEqual(targets.map((x) => x.id), ['push_bar', 'c']); // labels aren't looked up; an arrow aimed at a point follows that point
   assert.equal(targets[0].label, 'Press here (push bar)');
   const s = t.refine([{ id: 'push_bar', at: [0.5, 0.53] }, { id: 'c', at: [0.41, 0.4] }]);
   assert.deepEqual(s.points[0].at, [0.5, 0.53]);
@@ -86,4 +86,20 @@ test('an arrow given only "at" points at that spot', () => {
   assert.deepEqual(r.response.shown, ['sauce']);
   assert.deepEqual(t.scene.items[0].to, [0.47, 0.13]);
   assert.equal(t.scene.items[0].at, undefined);
+});
+
+test('unlabelled arrows are snapped too, named by a label at the same spot or by their id; labels ride along', () => {
+  const t = createLiveTools();
+  t.handle({ name: 'show', args: { items: [
+    { type: 'label', id: 'fork_label', at: [250, 750], text: 'Here is the fork.' }, // words in "text"
+    { type: 'arrow', id: 'fork_arrow', from: [150, 750], to: [250, 750] },
+    { type: 'arrow', id: 'nametag_arrow', from: [280, 380], to: [380, 380] },
+  ] } });
+  assert.deepEqual(t.scene.items.map((i) => i.id), ['fork_label', 'fork_arrow', 'nametag_arrow']);
+  const targets = t.targetsFor(['fork_label', 'fork_arrow', 'nametag_arrow'], []);
+  assert.deepEqual(targets.map((x) => [x.id, x.label]), [['fork_arrow', 'Here is the fork.'], ['nametag_arrow', 'nametag']]);
+  const s = t.refine([{ id: 'fork_arrow', at: [0.8, 0.3] }]);
+  assert.deepEqual(s.items.find((i) => i.id === 'fork_arrow').to, [0.8, 0.3]);
+  const lab = s.items.find((i) => i.id === 'fork_label').at;
+  assert.ok(Math.abs(lab[0] - 0.8) < 1e-9 && Math.abs(lab[1] - 0.3) < 1e-9); // the label moved with the arrow tip
 });

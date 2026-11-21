@@ -23,6 +23,8 @@ const NEEDS = { arrow: ['from', 'to'], line: ['from', 'to'], point: ['at'], circ
 
 function withPointRefs(item, pointIds) {
   const out = { ...item };
+  // Label items often arrive with their words in "text": use them as the label.
+  if (out.type === 'label' && typeof out.label !== 'string' && typeof out.text === 'string') out.label = out.text;
   // An arrow with only a tip ("point at the keys"): add a tail up-left of it instead of rejecting it.
   // An arrow given a single position ("at") means "point at this spot".
   if (out.type === 'arrow' && out.to === undefined && out.to_point === undefined) {
@@ -124,6 +126,11 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
   const HANDLERS = { show, remove, gesture, procedure, calc };
 
   const words = (id) => id.replace(/_/g, ' ');
+  // "fork_arrow" -> "fork", "nametag_circle" -> "nametag"
+  const stem = (id) => words(id).replace(/\b(arrow|label|circle|point|dot|marker|highlight|pointer|tip)\b/g, '').replace(/\s+/g, ' ').trim() || words(id);
+  const near = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.06;
+  // A label item sitting at (about) the same spot names what's there.
+  const labelAt = (pos, exceptId) => scene.items.find((i) => i.id !== exceptId && i.type === 'label' && near(i.at, pos))?.label;
   // What to look up precisely after a show: named points and spot-like items that were just added.
   function targetsFor(shownIds, pointIds) {
     const out = [];
@@ -135,15 +142,27 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     }
     for (const id of shownIds) {
       const it = scene.items.find((i) => i.id === id);
-      if (it && Array.isArray(it.at) && ['circle', 'point', 'step'].includes(it.type)) out.push({ id, label: it.label || words(id), at: it.at });
-      // A labelled arrow with a numeric tip is pointing at something: snap the tip.
-      else if (it && it.type === 'arrow' && Array.isArray(it.to) && it.label && !it.refs?.to) out.push({ id, label: it.label, at: it.to });
+      if (it && Array.isArray(it.at) && ['circle', 'point', 'step'].includes(it.type)) out.push({ id, label: it.label || labelAt(it.at, id) || stem(id), at: it.at });
+      // An arrow with a numeric tip is pointing at something: snap the tip (labelled or not).
+      else if (it && it.type === 'arrow' && Array.isArray(it.to) && !it.refs?.to) out.push({ id, label: it.label || labelAt(it.to, id) || stem(id), at: it.to });
     }
     return out.slice(0, 8);
   }
   // Snap points/items to precise positions [{ id, at }] (contract coords). Returns the new scene.
   function refine(found) {
     const byId = new Map(found.map((f) => [f.id, f.at]));
+    // Labels (and other unsnapped spot items) that sat on a snapped spot move by the same amount.
+    const moves = [];
+    for (const f of found) {
+      const it = scene.items.find((i) => i.id === f.id);
+      const old = it ? (Array.isArray(it.at) ? it.at : it.to) : scene.points.find((p) => p.id === f.id)?.at;
+      if (Array.isArray(old)) moves.push({ from: old, d: [f.at[0] - old[0], f.at[1] - old[1]] });
+    }
+    for (const i of scene.items) {
+      if (byId.has(i.id) || i.type !== 'label' || !Array.isArray(i.at)) continue;
+      const m = moves.find((mv) => near(mv.from, i.at));
+      if (m) byId.set(i.id, [i.at[0] + m.d[0], i.at[1] + m.d[1]]);
+    }
     scene = {
       ...scene,
       points: scene.points.map((p) => (byId.has(p.id) ? { ...p, at: byId.get(p.id) } : p)),
