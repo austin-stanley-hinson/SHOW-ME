@@ -13,7 +13,7 @@ export const RESPONSE_SCHEMA = {
       type: 'OBJECT',
       nullable: true,
       properties: {
-        model: { type: 'STRING', enum: ['wall_mount'] },
+        model: { type: 'STRING', enum: ['wall_mount', 'tripod_stand'] },
         inputs: {
           type: 'OBJECT',
           properties: {
@@ -21,6 +21,10 @@ export const RESPONSE_SCHEMA = {
             lever_arm_m: { type: 'NUMBER' },
             bolt_spacing_m: { type: 'NUMBER' },
             bolt_count: { type: 'INTEGER' },
+            stand_mass_kg: { type: 'NUMBER' },
+            leg_radius_m: { type: 'NUMBER' },
+            com_height_m: { type: 'NUMBER' },
+            push_height_m: { type: 'NUMBER' },
           },
         },
         assumptions: { type: 'ARRAY', items: { type: 'STRING' }, maxItems: 4 },
@@ -42,7 +46,9 @@ export const RESPONSE_SCHEMA = {
           label: { type: 'STRING' },
           quantity: {
             type: 'STRING',
-            enum: ['weight', 'shear_per_bolt', 'moment', 'top_bolt_tension', 'wall_reaction', 'mass_kg', 'lever_arm_m', 'bolt_spacing_m', 'bolt_count'],
+            enum: ['weight', 'shear_per_bolt', 'moment', 'top_bolt_tension', 'wall_reaction', 'mass_kg', 'lever_arm_m', 'bolt_spacing_m', 'bolt_count',
+              'leg_load', 'tip_margin_m', 'tip_moment', 'tip_force', 'tip_angle_deg',
+              'stand_mass_kg', 'leg_radius_m', 'com_height_m', 'push_height_m'],
           },
           color: { type: 'STRING' },
           text: { type: 'STRING' },

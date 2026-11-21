@@ -1,4 +1,4 @@
-# Response Contract (v2.1)
+# Response Contract (v2.2)
 
 This is the one JSON shape that **Gemini must return** and that **the renderer must accept**.
 If you change it, change it here first, in its own PR, and get the other person's OK before merging.
@@ -67,7 +67,7 @@ the capture-time camera. Items then stay fixed in the world as the phone turns.
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `model` | string | yes | Which calculation to run. v2 supports only `wall_mount`. |
+| `model` | string | yes | Which calculation to run: `wall_mount` or `tripod_stand`. |
 | `inputs` | object | yes | Estimated input values for that model (numbers only, SI units in the key name). |
 | `assumptions` | string[] | yes | 1–4 short reasons behind the estimates. The renderer always shows these. |
 
@@ -91,6 +91,29 @@ Computed by `physics.js` (g = 9.81 m/s²):
 | `moment` | M = W · lever_arm | N·m |
 | `top_bolt_tension` | T = M / bolt_spacing | N |
 | `wall_reaction` | equal to T (horizontal balance) | N |
+
+### Model `tripod_stand`
+
+An object on a three-legged stand (speaker stand, light stand, camera tripod). Feet are evenly spaced around the pole.
+
+| Input | Unit | Meaning |
+|---|---|---|
+| `mass_kg` | kg | Estimated mass of the object on top |
+| `stand_mass_kg` | kg | Estimated mass of the stand |
+| `leg_radius_m` | m | Horizontal distance from the pole to each foot |
+| `com_height_m` | m | Height of the combined center of mass (object + stand) above the floor |
+| `push_height_m` | m | Height where someone would bump it (usually the top of the object) |
+
+Computed by `physics.js` (g = 9.81 m/s²). Tipping uses the weakest direction: the edge between two feet, which is `leg_radius / 2` from the pole.
+
+| Quantity key | Formula | Unit |
+|---|---|---|
+| `weight` | W = (mass + stand_mass)·g | N |
+| `leg_load` | W / 3 | N |
+| `tip_margin_m` | e = leg_radius / 2 | m |
+| `tip_moment` | M = W · e | N·m |
+| `tip_force` | F = M / push_height (sideways push that starts tipping it) | N |
+| `tip_angle_deg` | θ = atan(e / com_height) (lean before it falls) | ° |
 
 Any input key can also be used as a quantity (`mass_kg`, `lever_arm_m`, …). It is shown as an estimate.
 
@@ -201,6 +224,54 @@ Up: 2 bolts × 24.5 N = 49 N ✓
 Turning: M = 49 × 0.10 = 4.9 N·m
 Top bolt: T = 4.9 / 0.08 = 61 N  ·  Wall push = 61 N
 Assumptions: Bookshelf speakers this size are usually 4–6 kg; …
+```
+
+## Example 1b: Tripod speaker (the live demo)
+
+User looks at a speaker on a tripod stand from the front and asks: *"Why isn't it falling?"*
+
+```json
+{
+  "answer": "It's a powered PA speaker, about 16 kg, on a tripod stand. Its weight goes straight down the pole and spreads across three feet, and it only tips if its center of mass gets pushed past the edge between two feet.",
+  "followup_question": "Want to know how hard you'd have to push it to knock it over?",
+  "physics": {
+    "model": "tripod_stand",
+    "inputs": { "mass_kg": 16, "stand_mass_kg": 4, "leg_radius_m": 0.55, "com_height_m": 1.4, "push_height_m": 1.75 },
+    "assumptions": [
+      "12-inch powered PA speakers are usually 14–18 kg",
+      "Steel tripod stands are about 4 kg",
+      "Feet spread about 1.1 m across"
+    ]
+  },
+  "draw": [
+    { "type": "point", "id": "center_of_mass", "at": [0.52, 0.30], "label": "Center of mass", "color": "#ffffff" },
+    { "type": "arrow", "id": "weight", "from": [0.52, 0.30], "to": [0.52, 0.52], "label": "W", "quantity": "weight", "color": "#ff3b30" },
+    { "type": "arrow", "id": "leg_left", "from": [0.36, 0.99], "to": [0.36, 0.88], "label": "Leg", "quantity": "leg_load", "color": "#34c759" },
+    { "type": "arrow", "id": "leg_right", "from": [0.67, 0.99], "to": [0.67, 0.88], "label": "Leg", "quantity": "leg_load", "color": "#34c759" },
+    { "type": "arrow", "id": "leg_back", "from": [0.56, 0.88], "to": [0.56, 0.78], "label": "Leg", "quantity": "leg_load", "color": "#34c759" },
+    { "type": "line", "id": "tip_edge", "from": [0.36, 0.95], "to": [0.67, 0.98], "label": "Tip edge", "color": "#ffffff" },
+    { "type": "arrow", "id": "push", "from": [0.22, 0.08], "to": [0.38, 0.08], "label": "Push to tip", "quantity": "tip_force", "color": "#ffcc00" },
+    {
+      "type": "panel",
+      "id": "statics_math",
+      "at": [0.70, 0.05],
+      "label": "Why it stays up",
+      "text": "The weight goes down the pole and is shared by three feet.\nIt only falls if the center of mass moves past the line between two feet.",
+      "content": "physics"
+    }
+  ]
+}
+```
+
+What the renderer shows in the panel (computed by `physics.js`):
+
+```
+Mass ≈ 16 + 4 = 20 kg (est.) → W = 20 × 9.81 = 196 N
+Each leg: 196 / 3 = 65.3 N
+Tip edge: e = 0.55 / 2 = 0.275 m from the pole
+To tip it: M = 196 × 0.275 = 53.9 N·m
+Push at the top: F = 53.9 / 1.75 = 30.8 N
+Lean limit: tan θ = 0.275 / 1.4 → θ = 11.1°
 ```
 
 ## Example 2: "How do I use this?" (steps)
