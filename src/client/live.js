@@ -18,6 +18,7 @@
 import { createLiveTools } from './liveTools.js';
 import { createSceneTracker } from '../tracking/sceneTracker.js';
 import { createDebugLog } from './debugLog.js';
+import { createParkDetector } from './parked.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
@@ -55,6 +56,7 @@ function toPcm16(float32, fromRate) {
 
 export async function startLive(opts) {
   const { pushToTalk = false } = opts;
+  const { onParked = () => {} } = opts; // (parked: boolean) -> e.g. show "Phone down, still listening"
   const { video, onScene, onGesture, onProcedure, onCalc, onSaid, onHeard, onStatus = () => {}, onError = () => {} } = opts;
   const log = createDebugLog();
   let lastStatus = null;
@@ -203,7 +205,7 @@ export async function startLive(opts) {
   // ---- camera frames ----
   const frameCanvas = document.createElement('canvas');
   function sendFrame() {
-    if (!video.videoWidth) return;
+    if (!video.videoWidth || parked) return; // phone down: don't stream the ceiling / the table
     lastSentFrameId = st.mark(); // the tracker's frame == the frame Gemini is about to see
     sendFrameImage(lastSentFrameId);
   }
@@ -265,12 +267,40 @@ export async function startLive(opts) {
       return;
     }
     if (m.toolCall) {
+      // Step advances are checked by an independent verifier first (see verifyAdvance). procedure is a blocking
+      // tool, so the model waits for this reply before speaking: a rejected advance never gets a "Great!".
+      const verdicts = new Map();
+      for (const fc of m.toolCall.functionCalls) {
+        if (isAdvance(fc)) verdicts.set(fc, await verifyAdvance());
+      }
       if (autoTurn) {
         const names = m.toolCall.functionCalls.map((fc) => fc.name);
-        if (names.includes('wait')) autoTurn.decided = 'quiet';
+        const rejected = [...verdicts.values()].some((v) => v && !v.done);
+        // On a pickup the user is showing their work: real feedback must be heard even if the model also calls
+        // wait (it said "The seat is still down. Please lift it up." and called wait in the same turn). The
+        // turn-complete check below keeps it only if it's substantive.
+        if (names.includes('wait') && autoTurn.kind !== 'pickup-check') autoTurn.decided = 'quiet';
+        else if (rejected && autoTurn.kind === 'watch-check') autoTurn.decided = 'quiet'; // mid-step: stay quiet
         else if (names.some((n) => ['procedure', 'show', 'gesture', 'remove', 'calc'].includes(n))) releaseAutoTurn();
       }
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
+        const v = verdicts.get(fc);
+        if (v && !v.done) {
+          log.event('verify-rejected', { args: fc.args, evidence: v.evidence });
+          const quiet = autoTurn?.kind === 'watch-check';
+          return {
+            id: fc.id,
+            name: fc.name,
+            response: {
+              rejected: true,
+              reason: `Step ${step.current} is not done yet. An independent check of the newest frame says: "${v.evidence}"`,
+              instruction: quiet
+                ? 'Stay on the current step. Call wait and say nothing.'
+                : 'Stay on the current step. Tell the user briefly what you see and what is still needed (show where).',
+            },
+          };
+        }
+        if (v) log.event('verify-ok', { args: fc.args, evidence: v.evidence });
         const { response, update } = tools.handle(fc);
         log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
@@ -358,21 +388,39 @@ export async function startLive(opts) {
     autoTurn.audio = [];
     if (said) onSaid?.(said, false);
   }
-  const watchTimer = setInterval(() => {
-    if (!watching || closed || busy || talking || playing.size || autoTurn) return;
-    if (!step || step.complete) return;
-    if (Date.now() - lastTurnEnd < WATCH_EVERY_MS) return;
-    if (st.tracker.motion > 6) return; // wait for the view to settle
-    const now = thumb();
-    const changed = changeSince(baseThumb, now);
-    if (changed < CHANGE_MIN) return; // nothing visibly happened: no point asking (and no false "done")
-    baseThumb = now; // next check needs a further change
-    autoTurn = { audio: [], decided: null };
+  // ---- independent step verification ----
+  const isAdvance = (fc) =>
+    fc.name === 'procedure' && step && !step.complete && step.done_when &&
+    ((Number.isInteger(fc.args?.current) && fc.args.current > step.current) || fc.args?.complete === true);
+  async function verifyAdvance() {
+    // Look at the very latest view: send a fresh frame (also seen by the model) and verify on it.
+    lastSentFrameId = st.mark();
+    sendFrameImage(lastSentFrameId);
+    const image = sentFrames.get(lastSentFrameId);
+    const t = Date.now();
+    try {
+      const r = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image, condition: step.done_when }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const j = await r.json();
+      log.event('verify', { condition: step.done_when, result: j, ms: Date.now() - t });
+      if (!r.ok) return null; // verifier unavailable: don't block the user
+      return j;
+    } catch {
+      return null;
+    }
+  }
+
+  // An app-generated turn whose reply is held back: released if the model acts or says something
+  // substantive, dropped if it calls wait or just acknowledges.
+  function sendAppTurn(text, kind) {
+    autoTurn = { audio: [], decided: null, kind };
     busy = true;
-    const check = `[auto-check] Step ${step.current}${step.total ? ' of ' + step.total : ''}${step.done_when ? ': done when ' + step.done_when : ''}.`;
-    log.event('watch-check', { check, changed: Math.round(changed) });
-    send({ realtimeInput: { text: check } });
-    // If no reply comes, don't stay stuck.
+    log.event(kind, text);
+    send({ realtimeInput: { text } });
     setTimeout(() => {
       if (autoTurn && busy) {
         autoTurn = null;
@@ -380,10 +428,61 @@ export async function startLive(opts) {
         lastTurnEnd = Date.now();
       }
     }, 15000);
+  }
+
+  // ---- phone put down / picked back up ("sloppy FaceTime" use) ----
+  let parked = false;
+  const park = createParkDetector({
+    onPark() {
+      parked = true;
+      log.event('park', true);
+      onParked(true);
+      hidden.clear(); // drawings come back via the pickup re-snap
+      for (const id of snapTargets.keys()) hidden.add(id);
+      if (!busy && !talking) sendAppTurn('[app] The phone was put down; the camera is pointing away from the work. Keep listening and answer by voice; don\'t comment on the camera view until it is picked back up. Call wait now.', 'park-notice');
+    },
+    onPickup(why) {
+      parked = false;
+      log.event('pickup', why);
+      onParked(false);
+      // Let the camera settle, then look: fresh frame, re-find drawings, and give feedback on the step.
+      setTimeout(() => {
+        if (closed || parked) return;
+        sendFrame();
+        resnap();
+        if (!step || step.complete) return;
+        const tryCheck = (tries) => {
+          if (closed || parked) return;
+          if (busy || talking || playing.size || autoTurn) return tries > 0 && setTimeout(() => tryCheck(tries - 1), 500);
+          baseThumb = thumb();
+          sendAppTurn(`[app] The phone was picked back up and pointed at the work. Look at the newest frame. If you can see the task, check it against step ${step.current}${step.done_when ? ' (done when: ' + step.done_when + ')' : ''} and give short spoken feedback: if it's done, confirm and give the next step via procedure; if it's not done yet or done wrong, say what you see and what's still needed, and show where. Only if the task isn't in view at all, call wait.`, 'pickup-check');
+        };
+        setTimeout(() => tryCheck(10), 600); // a second frame has been sent by then
+      }, 800);
+    },
+  });
+  const onOrient = (e) => park.orientation(e.beta, e.gamma, performance.now());
+  const onMotion = (e) => park.motion(e.accelerationIncludingGravity, performance.now());
+  addEventListener('deviceorientation', onOrient);
+  addEventListener('devicemotion', onMotion);
+
+  const watchTimer = setInterval(() => {
+    if (!watching || closed || busy || talking || playing.size || autoTurn || parked) return;
+    if (!step || step.complete) return;
+    if (Date.now() - lastTurnEnd < WATCH_EVERY_MS) return;
+    if (st.tracker.motion > 6) return; // wait for the view to settle
+    const now = thumb();
+    const changed = changeSince(baseThumb, now);
+    if (changed < CHANGE_MIN) return; // nothing visibly happened: no point asking (and no false "done")
+    baseThumb = now; // next check needs a further change
+    const check = `[auto-check] Step ${step.current}${step.total ? ' of ' + step.total : ''}${step.done_when ? ': done when ' + step.done_when : ''}.`;
+    sendAppTurn(check, 'watch-check');
   }, 1000);
 
   function cleanup() {
     clearInterval(watchTimer);
+    removeEventListener('deviceorientation', onOrient);
+    removeEventListener('devicemotion', onMotion);
     clearInterval(sampleTimer);
     clearInterval(resnapTimer);
     clearInterval(motionTimer);
@@ -459,6 +558,10 @@ export async function startLive(opts) {
     // Push-to-talk: call talkStart() when the button goes down and talkEnd() when it comes up.
     // Hands-free: while on and a procedure step is active, the model checks the camera every few seconds,
     // confirms finished steps / warns about mistakes, and otherwise stays silent.
+    // true while the phone is lying flat and still (frames paused, mic still open).
+    get parked() {
+      return parked;
+    },
     watch(on) {
       watching = Boolean(on);
       log.event('watch', watching);
