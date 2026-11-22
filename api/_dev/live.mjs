@@ -8,6 +8,8 @@
 import { readFileSync } from 'node:fs';
 import handler from '../live-token.js';
 import pointHandler from '../point.js';
+import verifyHandler from '../verify.js';
+const verify = (condition) => new Promise((resolve) => verifyHandler({ method: 'POST', body: { image: frame, condition } }, { statusCode: 200, status(c) { this.statusCode = c; return this; }, json: resolve }));
 import { createLiveTools } from '../../src/client/liveTools.js';
 
 const [framePath, ...questions] = process.argv.slice(2);
@@ -66,7 +68,18 @@ ws.onmessage = async (ev) => {
   if (m.toolCall) clearTimeout(globalThis.__next);
   if (m.serverContent?.modelTurn) clearTimeout(globalThis.__next);
   if (m.toolCall) {
+    // Same gate as live.js: a procedure advance is verified on the frame first.
+    const rejections = new Map();
+    for (const fc of m.toolCall.functionCalls) {
+      const adv = fc.name === 'procedure' && step && step.done_when && ((fc.args?.current ?? 0) > step.current || fc.args?.complete === true);
+      if (!adv) continue;
+      const v = await verify(step.done_when);
+      log('   VERIFY', JSON.stringify(step.done_when), '->', JSON.stringify(v));
+      if (v && v.done === false) rejections.set(fc, v);
+    }
     const responses = m.toolCall.functionCalls.map((fc) => {
+      const v = rejections.get(fc);
+      if (v) return { id: fc.id, name: fc.name, response: { rejected: true, reason: 'Step ' + step.current + ' is not done yet. An independent check of the newest frame says: "' + v.evidence + '"', instruction: 'Stay on the current step. Tell the user briefly what you see and what is still needed (show where).' } };
       const { response, update } = tools.handle(fc);
       log(`TOOL ${fc.name}`, JSON.stringify(fc.args).slice(0, 220));
       if (update?.scene) log('   on screen:', update.scene.items.map((i) => `${i.type}:${i.id}@${JSON.stringify(i.at || [i.from, i.to])}${i.label ? ` "${i.label}"` : ''}`).join('  '));
