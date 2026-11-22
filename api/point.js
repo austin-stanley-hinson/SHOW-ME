@@ -10,7 +10,7 @@ const MODEL = process.env.GEMINI_POINT_MODEL || 'gemini-3.6-flash';
 const MAX_IMAGE_CHARS = 1_500_000;
 const ID = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 
-const PROMPT = `You locate things in an image precisely. For each target, return the single point [y, x] (each 0-1000, [0,0] = top-left) that is exactly ON that thing: for a button, lever, bar or handle, the middle of the surface you would press or grab. If "near" is given, it's a rough guess of where it is. If a target is not visible, leave it out.
+const PROMPT = `You locate things in an image precisely. For each target, return the single point [y, x] (each 0-1000, [0,0] = top-left) that is exactly ON that thing: for a button, lever, bar or handle, the middle of the surface you would press or grab. For mechanical parts (hinge, pivot, joint, latch, lock, screw, spring, release), find the actual mechanism in the image (where two parts rotate or connect), not just a corner or edge. If "near" is given, it's only where the part was a moment ago; it may be stale. If a target is not visible, leave it out.
 Reply with only JSON: {"points": [{"id": "...", "at": [y, x]}]}`;
 
 export default async function handler(req, res) {

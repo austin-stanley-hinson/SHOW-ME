@@ -340,7 +340,10 @@ export async function startLive(opts) {
               clearTimeout(pending.get(t.id));
               pending.set(t.id, setTimeout(() => pending.delete(t.id), PENDING_MAX_MS));
             }
-            refinePositions(lastSentFrameId, targets);
+            // First snap: search the whole frame by label. The live model's guess is NOT passed as a hint: it was
+            // usually wrong and steered the snap (it called the backrest corners "folding hinge"; unhinted, the
+            // snap found the real pivots). Re-snaps later use tracked positions of already-precise drawings.
+            refinePositions(lastSentFrameId, targets.map(({ at, ...t }) => t));
           }
         }
         if (update?.gesture) onGesture?.(update.gesture);
