@@ -27,6 +27,8 @@ Messages in brackets come from the app, not the user:
 - "[app] ...": notes from the app (expert steps, phone put down or picked up). Follow them.
 - A procedure call that comes back "rejected" means the step isn't done yet: say what you actually see.
 
+CONFIRMING: before you tell the user something is done, correct, right, secure, sealed, tight, closed or safe, call check with what "done" looks like (e.g. "the cap is screwed fully onto the bottle, no gap"). An independent look at the newest frame answers; say what it found. Never confirm without check. If it says no, tell them what you see and what's still needed.
+
 A few rules: speak English. Think about the forces: when the user pushes or pulls one part, tell them what to hold so the rest doesn't move. For tools, electricity, heat or heights, give the key safety point first. Don't repeat yourself.`;
 
 const POS = { type: 'ARRAY', items: { type: 'NUMBER' }, description: '[y, x] 0-1000' };
@@ -110,6 +112,11 @@ export const LIVE_TOOLS = [
         behavior: 'NON_BLOCKING',
         description: 'Start a careful expert check of how to do a hands-on task with the object in view. Keep talking meanwhile; the checked steps arrive as an [app] note.',
         parameters: { type: 'OBJECT', properties: { task: { type: 'STRING', description: 'e.g. "fold this chair", "refill the stapler"' } }, required: ['task'] },
+      },
+      {
+        name: 'check',
+        description: 'Before confirming something is done / correct / secure: an independent look at the newest frame says whether the condition is clearly true. Wait for the answer, then say it.',
+        parameters: { type: 'OBJECT', properties: { condition: { type: 'STRING', description: 'what it looks like when done, e.g. "the cap is screwed fully onto the bottle"' } }, required: ['condition'] },
       },
       {
         name: 'wait',

@@ -79,6 +79,13 @@ ws.onmessage = async (ev) => {
       log('   VERIFY', JSON.stringify(step.done_when), '->', JSON.stringify(v));
       if (v && v.done === false) rejections.set(fc, v);
     }
+    const checks = new Map();
+    for (const fc of m.toolCall.functionCalls) {
+      if (fc.name !== 'check') continue;
+      const v = await verify(String(fc.args?.condition || ''));
+      log('   CHECK', JSON.stringify(fc.args?.condition), '->', JSON.stringify(v));
+      checks.set(fc, v && typeof v.done === 'boolean' ? { done: v.done, what_the_frame_shows: v.evidence } : { done: null });
+    }
     const plans = new Map();
     for (const fc of m.toolCall.functionCalls) {
       if (fc.name !== 'plan') continue;
@@ -96,6 +103,7 @@ ws.onmessage = async (ev) => {
     }
     const responses = m.toolCall.functionCalls.map((fc) => {
       if (plans.has(fc)) return { id: fc.id, name: fc.name, response: plans.get(fc) };
+      if (checks.has(fc)) return { id: fc.id, name: fc.name, response: checks.get(fc) };
       const v = rejections.get(fc);
       if (v) return { id: fc.id, name: fc.name, response: { rejected: true, reason: 'Step ' + step.current + ' is not done yet. An independent check of the newest frame says: "' + v.evidence + '"', instruction: 'Stay on the current step. Tell the user briefly what you see and what is still needed (show where).' } };
       const { response, update } = tools.handle(fc);
