@@ -347,6 +347,7 @@ export async function startLive(opts) {
             refinePositions(lastSentFrameId, targets.map(({ at, ...t }) => t));
           }
         }
+        if (fc.name === 'show' && response.shown?.length) turnDrew.push(...(fc.args?.items || []).filter((i) => response.shown.includes(i.id)).map((i) => i.label || i.id));
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) {
           step = update.procedure;
@@ -372,7 +373,7 @@ export async function startLive(opts) {
         said = '';
       }
       if (sc.modelTurn) busy = true;
-      if (sc.modelTurn?.parts?.some((p) => p.inlineData?.data)) lastSpokeAt = Date.now();
+      if (sc.modelTurn?.parts?.some((p) => p.inlineData?.data)) (lastSpokeAt = Date.now()), (turnSpoke = true);
       for (const p of sc.modelTurn?.parts || []) {
         if (!p.inlineData?.data) continue;
         if (autoTurn && autoTurn.decided !== 'speak') {
@@ -389,6 +390,15 @@ export async function startLive(opts) {
         onHeard?.(sc.inputTranscription.text);
       }
       if (sc.turnComplete) {
+        // Drew but didn't say anything (show gets no reply, so the turn can just end): ask for one short
+        // spoken explanation of what's on screen. Not for silent app turns.
+        if (turnDrew.length && !turnSpoke && !autoTurn && !closed) {
+          const labels = [...new Set(turnDrew)].slice(0, 6).join(', ');
+          log.event('narrate-nudge', labels);
+          setTimeout(() => send({ realtimeInput: { text: `[app] Your drawings are on screen (${labels}). Now tell the user briefly, out loud, what they show.` } }), 100);
+        }
+        turnDrew = [];
+        turnSpoke = false;
         if (autoTurn) {
           // No tool decided it: speak only if it actually said something substantive.
           const meaningful = said.trim().length > 20 && !/^(ok|okay|alright|all right|mm+|hmm+|got it)\b/i.test(said.trim());
@@ -423,6 +433,8 @@ export async function startLive(opts) {
   // ---- expert task plan (api/plan.js) ----
   let plan = null; // { title, object, steps: [{ n, say, part, motion, done_when, mistake }] }
   let lastSpokeAt = 0; // when the model last sent audio (for the plan nudge)
+  let turnDrew = []; // labels drawn in the current model turn
+  let turnSpoke = false; // whether the current model turn produced any audio
   let rejectedStep = null; // step number whose advance the verifier just rejected (for the user override)
   // Fetch the plan, then hand it to the model as an [app] note once nobody is talking.
   async function planInBackground(task) {
