@@ -13,14 +13,16 @@ const PROMPT = `You are an expert technician writing hands-on instructions for t
 First identify exactly what it is (type, and brand/model if visible) and how its mechanism actually works (hinges, pivots, latches, threads, which part moves relative to which). Use Google Search if you're not sure how this specific product works. Then write the steps.
 Rules:
 - 2 to 6 steps, in order. Each step is ONE physical action a beginner can do.
-- "say": what to say out loud: short, concrete, under 18 words, names the exact part and the direction ("Grab the front edge of the seat and lift it straight up toward the backrest.").
+- "say": what to say out loud: short, concrete, under 25 words, names the exact part and the direction ("Grab the front edge of the seat and lift it straight up toward the backrest.").
 - "part": the exact part to touch or move, as it would be labelled on the object ("front edge of the seat").
 - "motion": the movement in plain words ("lift up toward the backrest", "twist counterclockwise").
+- "brace": think about the forces. Pushing or pulling a part moves the whole object unless something holds it: say what the user's OTHER hand (or foot) must hold or press, and where, so only the intended part moves ("hold the top of the backrest down with your other hand", "keep a foot on the rear crossbar"). Use "" only if the object truly can't move (it's fixed, or heavy enough).
+- "say" MUST include the brace when there is one, first, then the action ("With one hand, hold the backrest down; with the other, lift the front of the seat up toward it.").
 - "done_when": what the OBJECT visibly looks like when the step is done (checkable from a photo of the object alone, never about the user's hands, which are often out of frame).
 - Every step must change the object. Fold supporting actions into the step that needs them ("Holding the backrest, pull the front edge of the seat up toward it.") instead of making "hold X" its own step.
 - "mistake": the most common mistake on this step, or "" if none.
 - Only include steps that are physically correct for this mechanism. No safety lectures unless there's a real pinch/cut/shock/heat risk; then put it in that step's "mistake".
-Reply with only JSON: {"title": "...", "object": "what it is", "steps": [{"n":1,"say":"...","part":"...","motion":"...","done_when":"...","mistake":"..."}]}`;
+Reply with only JSON: {"title": "...", "object": "what it is", "steps": [{"n":1,"say":"...","part":"...","motion":"...","brace":"...","done_when":"...","mistake":"..."}]}`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -61,9 +63,10 @@ export default async function handler(req, res) {
     const str = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
     const steps = (Array.isArray(plan.steps) ? plan.steps : []).slice(0, 6).map((s, i) => ({
       n: i + 1,
-      say: str(s.say, 160),
+      say: str(s.say, 200),
       part: str(s.part, 80),
       motion: str(s.motion, 80),
+      brace: str(s.brace, 120),
       done_when: str(s.done_when, 160),
       mistake: str(s.mistake, 160),
     })).filter((s) => s.say);
