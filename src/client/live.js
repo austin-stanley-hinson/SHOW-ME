@@ -283,6 +283,13 @@ export async function startLive(opts) {
         const ps = Number.isInteger(k) ? plan.steps[k - 1] : null;
         if (ps) fc.args = { ...fc.args, title: fc.args.title || plan.title, total: plan.steps.length, done_when: ps.done_when, ...(ps.mistake && !fc.args.safety && { safety: [ps.mistake] }) };
       }
+      // check: the model asks before confirming anything; the verifier looks at a fresh frame (blocking).
+      const checks = new Map();
+      for (const fc of m.toolCall.functionCalls) {
+        if (fc.name !== 'check') continue;
+        const v = await verifyAdvance(String(fc.args?.condition || ''));
+        checks.set(fc, v ? { done: v.done, what_the_frame_shows: v.evidence } : { done: null, note: "couldn't check right now; say you're not sure" });
+      }
       for (const fc of m.toolCall.functionCalls) {
         if (!isAdvance(fc)) continue;
         // The user can override: if they insist the same step is done after one rejection (not during a silent
@@ -326,6 +333,10 @@ export async function startLive(opts) {
         }
         if (v) log.event('verify-ok', { args: fc.args, evidence: v.evidence });
         if (fc.name === 'plan') return { id: fc.id, name: fc.name, response: { started: true } };
+        if (checks.has(fc)) {
+          log.event('check', { condition: fc.args?.condition, result: checks.get(fc) });
+          return { id: fc.id, name: fc.name, response: checks.get(fc) };
+        }
         const { response, update } = tools.handle(fc);
         log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
@@ -506,7 +517,7 @@ export async function startLive(opts) {
   const isAdvance = (fc) =>
     fc.name === 'procedure' && step && !step.complete && step.done_when &&
     ((Number.isInteger(fc.args?.current) && fc.args.current > step.current) || fc.args?.complete === true);
-  async function verifyAdvance() {
+  async function verifyAdvance(condition = step?.done_when) {
     // Look at the very latest view: send a fresh frame (also seen by the model) and verify on it.
     lastSentFrameId = st.mark();
     sendFrameImage(lastSentFrameId);
@@ -516,11 +527,11 @@ export async function startLive(opts) {
       const r = await fetch('/api/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image, condition: step.done_when }),
+        body: JSON.stringify({ image, condition }),
         signal: AbortSignal.timeout(8000),
       });
       const j = await r.json();
-      log.event('verify', { condition: step.done_when, result: j, ms: Date.now() - t });
+      log.event('verify', { condition, result: j, ms: Date.now() - t });
       if (!r.ok) return null; // verifier unavailable: don't block the user
       return j;
     } catch {
