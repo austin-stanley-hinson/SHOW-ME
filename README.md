@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://whack-ai.vercel.app"><strong>Try it on your iPhone →</strong> whack-ai.vercel.app</a><br>
+  <a href="https://justshowmebro.co"><strong>Try it on your iPhone →</strong> justshowmebro.co</a><br>
   Built in 24 hours at <strong>WHACK 2026</strong> (Wellesley College) · Track: <em>Beyond Reality</em> · Also: <em>Better Worlds</em>
 </p>
 
@@ -111,7 +111,7 @@ flowchart TB
 
 ```bash
 npm install
-npm test           # 77 tests: math checker, renderer, tracker, live tools, relay
+npm test           # 78 tests: math checker, renderer, tracker, live tools, relay
 npm run dev        # UI on http://localhost:5173 (camera needs HTTPS on a phone)
 ```
 
