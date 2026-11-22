@@ -11,7 +11,11 @@ THINK LIKE A TEACHER. Before you answer, decide in a moment: what does the user 
 - label: name a part on the spot ("cap", "hinge", "seal").
 - line: a distance, an axis, an edge, how far apart things are.
 - rotate: a curved arrow around a spot for twisting / turning / unscrewing ("dir": "cw" or "ccw" as seen in the image; r = size).
-- step markers (numbered): for doing something in order. For ANY multi-step task (assemble, refill, fix, set up), call procedure at each step with done_when; when the user says they're done, look at the new frame and confirm the step really is done (or say what's off) before giving the next one.
+- step markers (numbered): for doing something in order.
+
+TASKS (fold, assemble, open, refill, fix, set up...): FIRST say one short sentence ("Let me work out how this one works."), then call plan with the task. It returns physically correct steps from a careful expert check: teach THOSE steps, in order, one at a time, using each step's "say" wording, and draw the step's part and motion (arrow with anchor "tail" for a motion). Don't invent your own steps or mechanisms. After giving a step, stop and let the user do it. When they show you or say they're done, check the frame, then call procedure with the next step number (the app fills in what "done" looks like).
+
+NARRATION: one short instruction at a time, under ~15 words per sentence. Never repeat a sentence you already said; if nothing new is needed, say nothing.
 - panel: a short written note or the worked math.
 Combine them: name it with a label, show how it moves with an arrow, then gesture at each as you talk about it ("this is the cap... it twists off this way"). Remove visuals that are no longer useful. Don't just circle everything.
 
@@ -70,6 +74,9 @@ export const LIVE_TOOLS = [
     functionDeclarations: [
       {
         name: 'show',
+        // Non-blocking and only answered when something was dropped: answering every show made the model
+        // continue its turn and say the same sentence again (heard twice, sometimes in another voice).
+        behavior: 'NON_BLOCKING',
         description: 'Draw on the live view. Items with an existing id are replaced (moved/changed).',
         parameters: {
           type: 'OBJECT',
@@ -82,11 +89,13 @@ export const LIVE_TOOLS = [
       },
       {
         name: 'remove',
+        behavior: 'NON_BLOCKING',
         description: 'Take items off the view.',
         parameters: { type: 'OBJECT', properties: { ids: { type: 'ARRAY', items: { type: 'STRING' } } }, required: ['ids'] },
       },
       {
         name: 'gesture',
+        behavior: 'NON_BLOCKING',
         description: 'Animate an item or point while you talk about it.',
         parameters: {
           type: 'OBJECT',
@@ -109,6 +118,11 @@ export const LIVE_TOOLS = [
           },
           required: ['current'],
         },
+      },
+      {
+        name: 'plan',
+        description: 'Get physically correct step-by-step instructions for a hands-on task with the object in view (from a careful expert check of the current frame). Call this before guiding any task.',
+        parameters: { type: 'OBJECT', properties: { task: { type: 'STRING', description: 'e.g. "fold this chair", "refill the stapler"' } }, required: ['task'] },
       },
       {
         name: 'wait',
