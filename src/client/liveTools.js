@@ -80,6 +80,13 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
     };
     const pointIds = new Set([...scene.points.map((p) => p.id), ...raw.points.map((p) => p?.id)]);
     raw.draw = (Array.isArray(args?.items) ? args.items : []).map((i) => withPointRefs(i, pointIds));
+    // A spot item with no position, sent together with exactly one point, belongs on that point
+    // (e.g. a rotate "Twist to open" + points [{ id: "cap" }]).
+    if (raw.points.length === 1) {
+      for (const i of raw.draw) {
+        if (['circle', 'rotate', 'point', 'step', 'label'].includes(i.type) && i.at === undefined && i.at_point === undefined) i.at = raw.points[0].id;
+      }
+    }
     // Points already on screen can be referenced by id; validate against the merged set.
     // Points already on screen can be referenced, but only when the view is kept (clear: false).
     const keep = raw.clear ? [] : scene.points.map((p) => ({ id: p.id, at: [p.at[1] * 1000, p.at[0] * 1000] }));

@@ -139,8 +139,8 @@ ws.onmessage = async (ev) => {
     if (sc.turnComplete && !(said || audio) && globalThis.__drew?.length) {
       const labels = [...new Set(globalThis.__drew)].join(', ');
       globalThis.__drew = [];
-      log('   [app] narrate nudge: ' + labels);
-      ws.send(JSON.stringify({ realtimeInput: { text: '[app] Your drawings are on screen (' + labels + '). Now tell the user briefly, out loud, what they show.' } }));
+      const a0 = audio;
+      setTimeout(() => { if (audio !== a0) return; log('   [app] narrate nudge: ' + labels); ws.send(JSON.stringify({ realtimeInput: { text: '[app] Your drawings are on screen (' + labels + '). Now tell the user briefly, out loud, what they show.' } })); }, 2500);
     }
     if (sc.turnComplete) globalThis.__drew = [];
     if (sc.turnComplete && !(said || audio)) {

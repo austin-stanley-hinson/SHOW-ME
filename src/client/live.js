@@ -393,9 +393,15 @@ export async function startLive(opts) {
         // Drew but didn't say anything (show gets no reply, so the turn can just end): ask for one short
         // spoken explanation of what's on screen. Not for silent app turns.
         if (turnDrew.length && !turnSpoke && !autoTurn && !closed) {
+          // The model often speaks in its next turn on its own: only nudge if it's still silent 2.5 s later
+          // (nudging right away made it say the same sentence twice).
           const labels = [...new Set(turnDrew)].slice(0, 6).join(', ');
-          log.event('narrate-nudge', labels);
-          setTimeout(() => send({ realtimeInput: { text: `[app] Your drawings are on screen (${labels}). Now tell the user briefly, out loud, what they show.` } }), 100);
+          const endedAt = Date.now();
+          setTimeout(() => {
+            if (closed || lastSpokeAt > endedAt || talking || busy) return;
+            log.event('narrate-nudge', labels);
+            send({ realtimeInput: { text: `[app] Your drawings are on screen (${labels}). Now tell the user briefly, out loud, what they show.` } });
+          }, 2500);
         }
         turnDrew = [];
         turnSpoke = false;
