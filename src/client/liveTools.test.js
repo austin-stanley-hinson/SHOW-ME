@@ -34,7 +34,7 @@ test('live setup is complete enough to lock into a token', () => {
   const s = liveSetup();
   assert.match(s.model, /^models\//);
   assert.deepEqual(s.generationConfig.responseModalities, ['AUDIO']);
-  assert.deepEqual(s.tools[0].functionDeclarations.map((f) => f.name), ['show', 'remove', 'gesture', 'procedure', 'wait', 'calc']);
+  assert.deepEqual(s.tools[0].functionDeclarations.map((f) => f.name), ['show', 'remove', 'gesture', 'procedure', 'plan', 'wait', 'calc']);
 });
 
 test('precise points: targets for new spots, refine snaps them', () => {

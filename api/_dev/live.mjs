@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import handler from '../live-token.js';
 import pointHandler from '../point.js';
 import verifyHandler from '../verify.js';
+import planHandler from '../plan.js';
+const getPlan = (task) => new Promise((resolve) => planHandler({ method: 'POST', body: { image: frame, task } }, { statusCode: 200, status(c) { this.statusCode = c; return this; }, json: resolve }));
 const verify = (condition) => new Promise((resolve) => verifyHandler({ method: 'POST', body: { image: frame, condition } }, { statusCode: 200, status(c) { this.statusCode = c; return this; }, json: resolve }));
 import { createLiveTools } from '../../src/client/liveTools.js';
 
@@ -77,7 +79,16 @@ ws.onmessage = async (ev) => {
       log('   VERIFY', JSON.stringify(step.done_when), '->', JSON.stringify(v));
       if (v && v.done === false) rejections.set(fc, v);
     }
+    const plans = new Map();
+    for (const fc of m.toolCall.functionCalls) {
+      if (fc.name !== 'plan') continue;
+      const p = await getPlan(fc.args?.task);
+      log('   PLAN', JSON.stringify(p).slice(0, 400));
+      if (p.steps) step = { current: 1, total: p.steps.length, done_when: p.steps[0].done_when };
+      plans.set(fc, p.steps ? { object: p.object, steps: p.steps, instruction: 'Teach these steps one at a time, in order, using the "say" wording. Say step 1 now and draw its part and motion. Then stop and let the user do it. The procedure is already set to step 1.' } : { error: 'no plan' });
+    }
     const responses = m.toolCall.functionCalls.map((fc) => {
+      if (plans.has(fc)) return { id: fc.id, name: fc.name, response: plans.get(fc) };
       const v = rejections.get(fc);
       if (v) return { id: fc.id, name: fc.name, response: { rejected: true, reason: 'Step ' + step.current + ' is not done yet. An independent check of the newest frame says: "' + v.evidence + '"', instruction: 'Stay on the current step. Tell the user briefly what you see and what is still needed (show where).' } };
       const { response, update } = tools.handle(fc);
@@ -104,7 +115,8 @@ ws.onmessage = async (ev) => {
       return { id: fc.id, name: fc.name, response };
     });
     // wait is non-blocking: replying to it restarts generation (it loops), so it gets no reply.
-    const replies = responses.filter((r) => r.name !== 'wait');
+    const quietOk = (r) => ['show', 'gesture', 'remove'].includes(r.name) && !r.response?.error && !r.response?.dropped?.length;
+    const replies = responses.filter((r) => r.name !== 'wait' && !quietOk(r));
     if (replies.length) ws.send(JSON.stringify({ toolResponse: { functionResponses: replies } }));
   }
   const sc = m.serverContent;

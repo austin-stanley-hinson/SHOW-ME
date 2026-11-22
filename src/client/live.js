@@ -270,8 +270,31 @@ export async function startLive(opts) {
       // Step advances are checked by an independent verifier first (see verifyAdvance). procedure is a blocking
       // tool, so the model waits for this reply before speaking: a rejected advance never gets a "Great!".
       const verdicts = new Map();
+      // plan: fetch expert steps for the task (several seconds) and start the procedure from them.
+      const planReplies = new Map();
       for (const fc of m.toolCall.functionCalls) {
-        if (isAdvance(fc)) verdicts.set(fc, await verifyAdvance());
+        if (fc.name === 'plan') planReplies.set(fc, await fetchPlan(fc.args?.task));
+      }
+      // Fill a step advance's missing details from the plan (the plan's done_when is far better).
+      for (const fc of m.toolCall.functionCalls) {
+        if (fc.name !== 'procedure' || !plan) continue;
+        const k = fc.args?.current;
+        const ps = Number.isInteger(k) ? plan.steps[k - 1] : null;
+        if (ps) fc.args = { ...fc.args, title: fc.args.title || plan.title, total: plan.steps.length, done_when: ps.done_when, ...(ps.mistake && !fc.args.safety && { safety: [ps.mistake] }) };
+      }
+      for (const fc of m.toolCall.functionCalls) {
+        if (!isAdvance(fc)) continue;
+        // The user can override: if they insist the same step is done after one rejection (not during a silent
+        // auto-check), let it through: the verifier is there to stop false "great!"s, not to block people.
+        if (!autoTurn && rejectedStep === step.current) {
+          log.event('verify-override', step.current);
+          rejectedStep = null;
+          continue;
+        }
+        const v = await verifyAdvance();
+        verdicts.set(fc, v);
+        if (v && !v.done && !autoTurn) rejectedStep = step.current;
+        if (v?.done) rejectedStep = null;
       }
       if (autoTurn) {
         const names = m.toolCall.functionCalls.map((fc) => fc.name);
@@ -301,6 +324,7 @@ export async function startLive(opts) {
           };
         }
         if (v) log.event('verify-ok', { args: fc.args, evidence: v.evidence });
+        if (planReplies.has(fc)) return { id: fc.id, name: fc.name, response: planReplies.get(fc) };
         const { response, update } = tools.handle(fc);
         log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
@@ -331,7 +355,10 @@ export async function startLive(opts) {
       });
       // wait is non-blocking and gets NO reply: replying makes the model continue and call wait again (it looped
       // about once a second in testing). Without a reply it calls wait once per auto-check and stays silent.
-      const replies = functionResponses.filter((r) => r.name !== 'wait');
+      // show / gesture / remove are non-blocking and only answered when something went wrong (answering every
+      // one made the model repeat its last sentence).
+      const quietOk = (r) => ['show', 'gesture', 'remove'].includes(r.name) && !r.response?.error && !r.response?.dropped?.length;
+      const replies = functionResponses.filter((r) => r.name !== 'wait' && !quietOk(r));
       if (replies.length) send({ toolResponse: { functionResponses: replies } });
     }
     const sc = m.serverContent;
@@ -388,6 +415,44 @@ export async function startLive(opts) {
     autoTurn.audio = [];
     if (said) onSaid?.(said, false);
   }
+  // ---- expert task plan (api/plan.js) ----
+  let plan = null; // { title, object, steps: [{ n, say, part, motion, done_when, mistake }] }
+  let rejectedStep = null; // step number whose advance the verifier just rejected (for the user override)
+  async function fetchPlan(task) {
+    lastSentFrameId = st.mark();
+    sendFrameImage(lastSentFrameId);
+    const image = sentFrames.get(lastSentFrameId);
+    const t = Date.now();
+    try {
+      const r = await fetch('/api/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image, task: String(task || 'the task the user asked about') }),
+        signal: AbortSignal.timeout(25000),
+      });
+      const j = await r.json();
+      log.event('plan', { task, result: j, ms: Date.now() - t });
+      if (!r.ok || !j.steps?.length) return { error: 'No plan available; guide carefully from what you can see.' };
+      plan = j;
+      // Start the procedure from the plan (step 1), so the UI and the checks use the expert's done_when.
+      const first = j.steps[0];
+      const { update } = tools.handle({ name: 'procedure', args: { title: j.title, current: 1, total: j.steps.length, done_when: first.done_when, ...(first.mistake && { safety: [first.mistake] }) } });
+      if (update?.procedure) {
+        step = update.procedure;
+        baseThumb = thumb();
+        onProcedure?.(update.procedure);
+      }
+      return {
+        object: j.object,
+        steps: j.steps,
+        instruction: 'Teach these steps one at a time, in order, using the "say" wording. Say step 1 now and draw its part and motion. Then stop and let the user do it. The procedure is already set to step 1.',
+      };
+    } catch {
+      log.event('plan-error', task);
+      return { error: 'No plan available; guide carefully from what you can see.' };
+    }
+  }
+
   // ---- independent step verification ----
   const isAdvance = (fc) =>
     fc.name === 'procedure' && step && !step.complete && step.done_when &&
