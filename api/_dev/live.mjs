@@ -82,10 +82,17 @@ ws.onmessage = async (ev) => {
     const plans = new Map();
     for (const fc of m.toolCall.functionCalls) {
       if (fc.name !== 'plan') continue;
-      const p = await getPlan(fc.args?.task);
-      log('   PLAN', JSON.stringify(p).slice(0, 400));
-      if (p.steps) step = { current: 1, total: p.steps.length, done_when: p.steps[0].done_when };
-      plans.set(fc, p.steps ? { object: p.object, steps: p.steps, instruction: 'Teach these steps one at a time, in order, using the "say" wording. Say step 1 now and draw its part and motion. Then stop and let the user do it. The procedure is already set to step 1.' } : { error: 'no plan' });
+      plans.set(fc, { started: true });
+      const spokeAt = audio;
+      setTimeout(() => { if (audio === spokeAt) { log('   [app] plan nudge sent'); ws.send(JSON.stringify({ realtimeInput: { text: '[app] The expert check is running (about 10 seconds). Meanwhile, talk the user through the first step now, in your own words.' } })); } }, 2000);
+      getPlan(fc.args?.task).then((p) => {
+        log('   PLAN', JSON.stringify(p).slice(0, 300));
+        if (!p.steps) return;
+        step = { current: 1, total: p.steps.length, done_when: p.steps[0].done_when };
+        const lines = p.steps.map((s) => s.n + ') ' + s.say + (s.mistake ? ' (watch out: ' + s.mistake + ')' : '')).join(' ');
+        ws.send(JSON.stringify({ realtimeInput: { text: '[app] Expert-checked steps for "' + fc.args?.task + '": ' + lines + ' Continue guiding from where you are, one step at a time, in your own words; correct anything you said that conflicts. The procedure is set to step 1.' } }));
+        log('   [app] plan note sent');
+      });
     }
     const responses = m.toolCall.functionCalls.map((fc) => {
       if (plans.has(fc)) return { id: fc.id, name: fc.name, response: plans.get(fc) };
@@ -116,7 +123,7 @@ ws.onmessage = async (ev) => {
     });
     // wait is non-blocking: replying to it restarts generation (it loops), so it gets no reply.
     const quietOk = (r) => ['show', 'gesture', 'remove'].includes(r.name) && !r.response?.error && !r.response?.dropped?.length;
-    const replies = responses.filter((r) => r.name !== 'wait' && !quietOk(r));
+    const replies = responses.filter((r) => r.name !== 'wait' && r.name !== 'plan' && !quietOk(r));
     if (replies.length) ws.send(JSON.stringify({ toolResponse: { functionResponses: replies } }));
   }
   const sc = m.serverContent;

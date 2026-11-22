@@ -271,9 +271,10 @@ export async function startLive(opts) {
       // tool, so the model waits for this reply before speaking: a rejected advance never gets a "Great!".
       const verdicts = new Map();
       // plan: fetch expert steps for the task (several seconds) and start the procedure from them.
-      const planReplies = new Map();
+      // plan runs in the background (non-blocking, no reply): the model keeps talking, and the checked steps are
+      // delivered as an [app] note when ready. (Blocking on it left the model silent for ~13 s and it never resumed.)
       for (const fc of m.toolCall.functionCalls) {
-        if (fc.name === 'plan') planReplies.set(fc, await fetchPlan(fc.args?.task));
+        if (fc.name === 'plan') planInBackground(fc.args?.task);
       }
       // Fill a step advance's missing details from the plan (the plan's done_when is far better).
       for (const fc of m.toolCall.functionCalls) {
@@ -324,7 +325,7 @@ export async function startLive(opts) {
           };
         }
         if (v) log.event('verify-ok', { args: fc.args, evidence: v.evidence });
-        if (planReplies.has(fc)) return { id: fc.id, name: fc.name, response: planReplies.get(fc) };
+        if (fc.name === 'plan') return { id: fc.id, name: fc.name, response: { started: true } };
         const { response, update } = tools.handle(fc);
         log.event('tool', { name: fc.name, args: fc.args, response, frameId: lastSentFrameId });
         if (update?.scene) {
@@ -361,7 +362,7 @@ export async function startLive(opts) {
       // show / gesture / remove are non-blocking and only answered when something went wrong (answering every
       // one made the model repeat its last sentence).
       const quietOk = (r) => ['show', 'gesture', 'remove'].includes(r.name) && !r.response?.error && !r.response?.dropped?.length;
-      const replies = functionResponses.filter((r) => r.name !== 'wait' && !quietOk(r));
+      const replies = functionResponses.filter((r) => r.name !== 'wait' && r.name !== 'plan' && !quietOk(r));
       if (replies.length) send({ toolResponse: { functionResponses: replies } });
     }
     const sc = m.serverContent;
@@ -371,6 +372,7 @@ export async function startLive(opts) {
         said = '';
       }
       if (sc.modelTurn) busy = true;
+      if (sc.modelTurn?.parts?.some((p) => p.inlineData?.data)) lastSpokeAt = Date.now();
       for (const p of sc.modelTurn?.parts || []) {
         if (!p.inlineData?.data) continue;
         if (autoTurn && autoTurn.decided !== 'speak') {
@@ -420,7 +422,33 @@ export async function startLive(opts) {
   }
   // ---- expert task plan (api/plan.js) ----
   let plan = null; // { title, object, steps: [{ n, say, part, motion, done_when, mistake }] }
+  let lastSpokeAt = 0; // when the model last sent audio (for the plan nudge)
   let rejectedStep = null; // step number whose advance the verifier just rejected (for the user override)
+  // Fetch the plan, then hand it to the model as an [app] note once nobody is talking.
+  async function planInBackground(task) {
+    // The model tends to go quiet until the plan arrives (~10 s). If it hasn't started speaking 2 s after
+    // calling plan, nudge it to talk the user through the first step in its own words meanwhile.
+    const saidAtCall = lastSpokeAt;
+    setTimeout(() => {
+      if (closed || lastSpokeAt !== saidAtCall || talking || playing.size) return;
+      log.event('plan-nudge', task);
+      busy = true;
+      send({ realtimeInput: { text: '[app] The expert check is running (about 10 seconds). Meanwhile, talk the user through the first step now, in your own words.' } });
+    }, 2000);
+    const result = await fetchPlan(task);
+    if (closed || !plan) return;
+    const lines = plan.steps.map((s) => `${s.n}) ${s.say}${s.mistake ? ' (watch out: ' + s.mistake + ')' : ''}`).join(' ');
+    const note = `[app] Expert-checked steps for "${task}": ${lines} Continue guiding from where you are, one step at a time, in your own words; correct anything you said that conflicts. The procedure is set to step 1.`;
+    const deliver = (tries) => {
+      if (closed) return;
+      if ((busy || talking || playing.size || autoTurn) && tries > 0) return setTimeout(() => deliver(tries - 1), 400);
+      busy = true;
+      log.event('plan-note', note);
+      send({ realtimeInput: { text: note } });
+    };
+    deliver(30);
+    return result;
+  }
   async function fetchPlan(task) {
     lastSentFrameId = st.mark();
     sendFrameImage(lastSentFrameId);
