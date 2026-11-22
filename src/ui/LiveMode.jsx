@@ -71,7 +71,12 @@ export default function LiveMode({ session, video, onExit }) {
 
   const rawStatus = state.status.startsWith('error') ? 'error' : state.status;
   const status = ptt && talking ? 'listening' : ptt && (rawStatus === 'live' || rawStatus === 'listening') ? 'ready' : rawStatus;
-  const statusText = status === 'error' ? 'Connection problem' : STATUS_TEXT[status] || status;
+  const statusText =
+    status === 'error'
+      ? 'Connection problem'
+      : state.parked && status !== 'connecting'
+        ? 'Phone down, still listening 🎙'
+        : STATUS_TEXT[status] || status;
 
   // If the AI drew a calc panel, the canvas shows the math; the caption keeps verdict + assumptions.
   const panelDrawn = Boolean(live?.scene?.items?.some((i) => i.type === 'panel' && i.content === 'calc'));
@@ -144,7 +149,7 @@ export default function LiveMode({ session, video, onExit }) {
       <div className={`live-status ${status}`} role="status">
         <span className="dot" aria-hidden="true" />
         {statusText}
-        {trackingLost && status !== 'connecting' && <span className="track-lost"> · hold still to re-anchor</span>}
+        {trackingLost && !state.parked && status !== 'connecting' && <span className="track-lost"> · hold still to re-anchor</span>}
       </div>
 
       <div className="result-controls" role="toolbar" aria-label="Live controls" ref={controlsRef}>

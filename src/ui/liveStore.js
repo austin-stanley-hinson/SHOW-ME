@@ -20,6 +20,7 @@ export function createLiveStore() {
     calcSheet: null, // the AI's calc itself (for the sliders)
     overrides: {}, // "what if" slider values, by input name
     error: '',
+    parked: false, // phone put down (live.js stops streaming frames; the mic stays open)
   };
   const subs = new Set();
   let heardDone = true; // true once the AI answers: the next onHeard starts a new line
@@ -51,6 +52,7 @@ export function createLiveStore() {
       set({ heard });
     },
     onStatus: (s) => set({ status: s }),
+    onParked: (parked) => set({ parked: Boolean(parked) }),
     onError: (e) => set({ error: e?.message || String(e) }),
   };
 
