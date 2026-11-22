@@ -74,7 +74,9 @@ export function createLiveTools({ coords = 'yx1000' } = {}) {
   function show(args) {
     const raw = {
       answer: '(live)',
-      clear: args?.clear === true ? true : false,
+      // A new show REPLACES what's on screen unless the model asks to keep it (clear: false): adding by default
+      // left old drawings piling up and looked sloppy in demo recordings.
+      clear: args?.clear !== false,
       points: Array.isArray(args?.points) ? args.points : [],
       draw: [],
     };

@@ -70,7 +70,7 @@ export const LIVE_TOOLS = [
           properties: {
             items: { type: 'ARRAY', items: ITEM },
             points: { type: 'ARRAY', items: { type: 'OBJECT', properties: { id: { type: 'STRING' }, at: POS }, required: ['id', 'at'] } },
-            clear: { type: 'BOOLEAN', description: 'true = remove everything first' },
+            clear: { type: 'BOOLEAN', description: 'default true: this drawing replaces what is on screen. Set false only to add to drawings that are still relevant.' },
           },
         },
       },
