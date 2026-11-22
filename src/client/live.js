@@ -19,6 +19,7 @@ import { createLiveTools } from './liveTools.js';
 import { createSceneTracker } from '../tracking/sceneTracker.js';
 import { createDebugLog } from './debugLog.js';
 import { createParkDetector } from './parked.js';
+import { asksForConfirmation, soundsLikeConfirmation } from './confirm.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const FRAME_MS = 1000;
@@ -312,7 +313,9 @@ export async function startLive(opts) {
         // turn-complete check below keeps it only if it's substantive.
         if (names.includes('wait') && autoTurn.kind !== 'pickup-check') autoTurn.decided = 'quiet';
         else if (rejected && autoTurn.kind === 'watch-check') autoTurn.decided = 'quiet'; // mid-step: stay quiet
-        else if (names.some((n) => ['procedure', 'show', 'gesture', 'remove', 'calc'].includes(n))) releaseAutoTurn();
+        else if (autoTurn.kind === 'confirm' && !names.includes('check')) {
+          /* drawings alone don't release a held confirmation: wait for its words or a check */
+        } else if (names.some((n) => ['procedure', 'show', 'gesture', 'remove', 'calc', 'check'].includes(n))) releaseAutoTurn();
       }
       const functionResponses = m.toolCall.functionCalls.map((fc) => {
         const v = verdicts.get(fc);
@@ -358,6 +361,7 @@ export async function startLive(opts) {
             refinePositions(lastSentFrameId, targets.map(({ at, ...t }) => t));
           }
         }
+        if (fc.name === 'show' && response.shown?.length) lastDrawAt = Date.now();
         if (fc.name === 'show' && response.shown?.length) turnDrew.push(...(fc.args?.items || []).filter((i) => response.shown.includes(i.id)).map((i) => i.label || i.id));
         if (update?.gesture) onGesture?.(update.gesture);
         if (update?.procedure) {
@@ -384,6 +388,10 @@ export async function startLive(opts) {
         said = '';
       }
       if (sc.modelTurn) busy = true;
+      if (sc.modelTurn && confirmPending && !autoTurn) {
+        confirmPending = false;
+        autoTurn = { audio: [], decided: null, kind: 'confirm' };
+      }
       if (sc.modelTurn?.parts?.some((p) => p.inlineData?.data)) (lastSpokeAt = Date.now()), (turnSpoke = true);
       for (const p of sc.modelTurn?.parts || []) {
         if (!p.inlineData?.data) continue;
@@ -394,9 +402,18 @@ export async function startLive(opts) {
       if (sc.turnComplete && said) log.event('said', said);
       if (sc.outputTranscription?.text) {
         said += sc.outputTranscription.text;
+        if (autoTurn?.kind === 'confirm' && autoTurn.decided === null) {
+          if (soundsLikeConfirmation(said)) {
+            autoTurn.decided = 'quiet';
+            autoTurn.needCheck = true;
+            log.event('confirm-blocked', said);
+          } else if (said.trim().length > 25) releaseAutoTurn();
+        }
         if (!autoTurn || autoTurn.decided === 'speak') onSaid?.(said, false);
       }
       if (sc.inputTranscription?.text) {
+        heardThisTurn += ' ' + sc.inputTranscription.text;
+        if (asksForConfirmation(heardThisTurn)) confirmPending = true;
         log.event('heard', sc.inputTranscription.text);
         onHeard?.(sc.inputTranscription.text);
       }
@@ -419,11 +436,19 @@ export async function startLive(opts) {
         if (autoTurn) {
           // No tool decided it: speak only if it actually said something substantive.
           const meaningful = said.trim().length > 20 && !/^(ok|okay|alright|all right|mm+|hmm+|got it)\b/i.test(said.trim());
-          if (autoTurn.decided === 'quiet' || (autoTurn.decided === null && !meaningful)) {
+          const needCheck = autoTurn.needCheck;
+          if (autoTurn.kind === 'confirm' && autoTurn.decided === null && meaningful) releaseAutoTurn();
+          else if (autoTurn.decided === 'quiet' || (autoTurn.decided === null && !meaningful)) {
             log.event('watch-dropped', said);
             said = '';
           } else releaseAutoTurn();
           autoTurn = null;
+          if (needCheck && !closed) {
+            setTimeout(() => {
+              busy = true;
+              send({ realtimeInput: { text: '[app] Before confirming, call check with what "done" looks like, then tell the user what it found.' } });
+            }, 100);
+          }
         }
         if (said) onSaid?.(said, true);
         said = '';
@@ -451,6 +476,9 @@ export async function startLive(opts) {
   let plan = null; // { title, object, steps: [{ n, say, part, motion, done_when, mistake }] }
   let lastSpokeAt = 0; // when the model last sent audio (for the plan nudge)
   let turnDrew = []; // labels drawn in the current model turn
+  let lastDrawAt = 0;
+  let heardThisTurn = ''; // what the user said since their last turn started
+  let confirmPending = false; // the user asked "like this? / done?": hold the reply until it checks
   let turnSpoke = false; // whether the current model turn produced any audio
   let rejectedStep = null; // step number whose advance the verifier just rejected (for the user override)
   // Fetch the plan, then hand it to the model as an [app] note once nobody is talking.
@@ -702,6 +730,16 @@ export async function startLive(opts) {
       }
       talking = true;
       busy = true;
+      heardThisTurn = '';
+      confirmPending = false;
+      if (tools.scene.items.length && Date.now() - lastDrawAt > 8000) {
+        const ids = tools.scene.items.map((i) => i.id);
+        tools.handle({ name: 'remove', args: { ids } });
+        snapTargets.clear();
+        hidden.clear();
+        onScene?.(tools.scene);
+        log.event('cleared-for-new-question', ids);
+      }
       stopPlayback(); // talking over the assistant interrupts it
       send({ realtimeInput: { activityStart: {} } });
       log.event('talk', 'start');
