@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Show Me logo">
+  <rect width="512" height="512" rx="116" fill="#12142A"/>
+  <g fill="none" stroke="#F7F6F2" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 168V120a24 24 0 0 1 24-24h48"/>
+    <path d="M344 96h48a24 24 0 0 1 24 24v48"/>
+    <path d="M416 344v48a24 24 0 0 1-24 24h-48"/>
+    <path d="M168 416h-48a24 24 0 0 1-24-24v-48"/>
+    <circle cx="318" cy="318" r="46" stroke-width="16"/>
+  </g>
+  <circle cx="318" cy="318" r="16" fill="#F7F6F2"/>
+  <path d="M164 164L236 236" fill="none" stroke="#FF6A45" stroke-width="30" stroke-linecap="round"/>
+  <path d="M276 276L202.4 259L259 202.4Z" fill="#FF6A45" stroke="#FF6A45" stroke-width="12" stroke-linejoin="round"/>
+</svg>
