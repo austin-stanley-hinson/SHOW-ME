@@ -106,6 +106,7 @@ ws.onmessage = async (ev) => {
       if (fc.name === 'wait') (waitCalled = true), log('   WAIT', JSON.stringify(fc.args));
       if (update?.calc) for (const l of update.calc.result.lines) log('   CALC', l);
       if (response.error || response.dropped) log('   tool response:', JSON.stringify(response));
+      if (fc.name === 'show') (globalThis.__drew ||= []).push(...(fc.args?.items || []).map((i) => i.label || i.id));
       if (fc.name === 'show') {
         const targets = tools.targetsFor(response.shown || [], (fc.args?.points || []).map((p) => p?.id).filter(Boolean));
         if (targets.length) {
@@ -135,6 +136,13 @@ ws.onmessage = async (ev) => {
     }
     if (sc.groundingMetadata) log('   SEARCHED:', JSON.stringify(sc.groundingMetadata.webSearchQueries || sc.groundingMetadata).slice(0, 160));
     if (sc.outputTranscription?.text) said += sc.outputTranscription.text;
+    if (sc.turnComplete && !(said || audio) && globalThis.__drew?.length) {
+      const labels = [...new Set(globalThis.__drew)].join(', ');
+      globalThis.__drew = [];
+      log('   [app] narrate nudge: ' + labels);
+      ws.send(JSON.stringify({ realtimeInput: { text: '[app] Your drawings are on screen (' + labels + '). Now tell the user briefly, out loud, what they show.' } }));
+    }
+    if (sc.turnComplete) globalThis.__drew = [];
     if (sc.turnComplete && !(said || audio)) {
       clearTimeout(globalThis.__next);
       globalThis.__next = setTimeout(nextTurn, 9000);
