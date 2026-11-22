@@ -583,3 +583,62 @@ mark.unchecked {
   outline: 4px solid #fff;
   outline-offset: 2px;
 }
+
+/* ---------- share live (session relay on Vultr) ---------- */
+
+.share-box {
+  width: 100%;
+  max-width: 600px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  border-left: 4px solid #30d158;
+}
+
+.share-box p {
+  margin: 0 0 6px;
+}
+
+.share-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.share-title .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #30d158;
+}
+
+.share-detail {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.share-url {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.share-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.share-actions .big-button {
+  flex: 1;
+}
+
+/* The shared view has no camera image: a calm neutral backdrop for the drawings. */
+.shared-view {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 10% 10%,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 10% 10%,
+    linear-gradient(#3a3a3c, #1c1c1e);
+}
