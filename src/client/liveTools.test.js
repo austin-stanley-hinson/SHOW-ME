@@ -156,3 +156,11 @@ test('wait: the model has nothing to say (hands-free auto-check)', async () => {
   const w = liveSetup().tools[0].functionDeclarations.find((f) => f.name === 'wait');
   assert.equal(w.behavior, 'NON_BLOCKING');
 });
+
+test('a rotate with no position sent with exactly one point goes on that point', () => {
+  const t = createLiveTools();
+  const r = t.handle({ name: 'show', args: { items: [{ type: 'rotate', id: 'open_cap', dir: 'ccw', label: 'Twist to open' }], points: [{ id: 'cap', at: [680, 580] }] } });
+  assert.deepEqual(r.response.shown, ['open_cap']);
+  assert.deepEqual(t.scene.items[0].at, [0.58, 0.68]);
+  assert.deepEqual(t.scene.items[0].refs, { at: 'cap' });
+});
