@@ -4,6 +4,11 @@ import CameraScreen from './ui/CameraScreen.jsx';
 import { openCamera, stopCamera, cameraErrorMessage } from './camera/camera.js';
 import { requestOrientationPermission, requestMotionPermission } from './orientation/permission.js';
 import { noCamera } from './ui/devMode.js';
+import SharedView from './ui/SharedView.jsx';
+
+// "Share live" links: ?s=<id> opens the shared view directly (no camera needed).
+const sharedId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('s') : null;
+const validSharedId = /^[a-z0-9]{6}$/.test(sharedId || '') ? sharedId : null;
 
 export default function App() {
   const [started, setStarted] = useState(false);
@@ -33,6 +38,7 @@ export default function App() {
     }
   }
 
+  if (validSharedId) return <SharedView id={validSharedId} />;
   if (!started) return <StartScreen onStart={handleStart} busy={busy} message={message} />;
   return <CameraScreen stream={stream} orientation={orientation} />;
 }

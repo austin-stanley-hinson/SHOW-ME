@@ -7,6 +7,8 @@ import AnnotationLayer from '../overlay/AnnotationLayer.jsx';
 import { AnswerText, CalcText } from './AnswerParts.jsx';
 import CalcSliders from './CalcSliders.jsx';
 import { evaluateCalc } from '../physics/calc.js';
+import { sessionsEnabled, createSession, joinSession } from '../client/session.js';
+import ShareBox from './ShareBox.jsx';
 import { fixtureName, fixtureAnswer, placeholderFrame, fakeLive, fakeStartLive } from './devMode.js';
 import { startLive } from '../client/live.js';
 import { createLiveStore } from './liveStore.js';
@@ -48,7 +50,37 @@ export default function CameraScreen({ stream, orientation }) {
     () => (answer ? buildScene(answer.data, answer.items, calcResult ? { calc: calcResult } : {}) : null),
     [answer, calcResult],
   );
-  const setOverride = (name, value) => setOverrides((o) => ({ ...o, [name]: { value, by: 'you' } }));
+  // "Share live" (session relay on Vultr): others see this answer and its sliders, synced both ways.
+  const [share, setShare] = useState(null); // { status: 'creating' | 'live' | 'error', url?, error? }
+  const sessionRef = useRef(null);
+  const sharedDoc = (a) => ({ ...a.data, draw: a.items }); // the whole current view, never the image
+
+  const setOverride = (name, value) => {
+    sessionRef.current?.setInput(name, value, 'phone');
+    setOverrides((o) => ({ ...o, [name]: { value, by: sessionRef.current ? 'phone' : 'you' } }));
+  };
+  const resetOverrides = () => {
+    if (sessionRef.current && answer) sessionRef.current.setDoc(sharedDoc(answer)); // the relay resets inputs
+    setOverrides({});
+  };
+
+  async function startShare() {
+    if (!answer || share) return;
+    setShare({ status: 'creating' });
+    try {
+      const id = await createSession(sharedDoc(answer));
+      sessionRef.current = joinSession(id, ({ inputs }) => setOverrides(inputs || {}));
+      setShare({ status: 'live', url: `${window.location.origin}${window.location.pathname}?s=${id}` });
+    } catch (e) {
+      setShare({ status: 'error', error: e.message });
+    }
+  }
+  function stopShare() {
+    sessionRef.current?.close();
+    sessionRef.current = null;
+    setShare(null);
+  }
+  useEffect(() => () => sessionRef.current?.close(), []);
 
   const [caption, setCaption] = useState(
     orientation === 'denied'
@@ -134,6 +166,7 @@ export default function CameraScreen({ stream, orientation }) {
     setAnswer({ data: result.data, items: nextView.items });
     setOverrides({});
     setWhatIfOpen(false);
+    sessionRef.current?.setDoc(sharedDoc({ data: result.data, items: nextView.items }));
     setTextHidden(false);
     setDrawingsHidden(false);
     setStatus('result');
@@ -171,6 +204,7 @@ export default function CameraScreen({ stream, orientation }) {
     setAnswer(null);
     setOverrides({});
     setWhatIfOpen(false);
+    stopShare();
     setView(emptyScene());
     setErrorDetail('');
     setStatus('live');
@@ -215,6 +249,11 @@ export default function CameraScreen({ stream, orientation }) {
               >
                 Text
               </button>
+              {sessionsEnabled() && !share && (
+                <button type="button" className="toggle" onClick={startShare}>
+                  Share
+                </button>
+              )}
             </>
           )}
           {stream && (
@@ -253,13 +292,15 @@ export default function CameraScreen({ stream, orientation }) {
           {scene?.hasCalc && <CalcText scene={scene} />}
         </div>
 
+        {!textHidden && <ShareBox share={share} onStop={stopShare} />}
+
         {/* Outside the scrolling caption, so the verdict and sliders stay in view while dragging. */}
         {calcResult && !thinking && !textHidden && (
           <CalcSliders
             sheet={answer.data.calc}
             result={calcResult}
             onChange={setOverride}
-            onReset={() => setOverrides({})}
+            onReset={resetOverrides}
             open={whatIfOpen}
             onOpenChange={setWhatIfOpen}
           />
